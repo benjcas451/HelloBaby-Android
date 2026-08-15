@@ -1,0 +1,27 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Signing-Daten – niemals einchecken (siehe key.properties.example)
+/key.properties
+*.jks
+
+# Build-/IDE-Artefakte
+.kotlin/
+/.idea/
+
+# Von Android Studio abgelegte Build-Artefakte
+app/release/
+wear/release/

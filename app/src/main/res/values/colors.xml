@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Hintergrund des Adaptive Icons (Baby-Grün, aus der Flutter-App). -->
+    <color name="ic_launcher_background">#78b856</color>
+    <!-- Seitenhintergrund (ruhiges, warm getöntes Neutral). -->
+    <color name="fenster_hintergrund">#F5F7F0</color>
+</resources>

@@ -1,0 +1,12 @@
+# Vorlage – kopiere diese Datei nach key.properties (Repo-Root) und trage
+# deine echten Werte ein. key.properties ist in .gitignore und darf NIE ins
+# Repo.
+#
+# storeFile: Pfad zum Keystore. Die Apps der Familie teilen sich denselben
+#   Upload-Keystore, z. B. /Users/lucas/keys/stillzeit-upload.jks
+#   (Play prueft den Fingerprint beim Upload).
+
+storePassword=DEIN_STORE_PASSWORT
+keyPassword=DEIN_KEY_PASSWORT
+keyAlias=upload
+storeFile=/ABSOLUTER/PFAD/zu/stillzeit-upload.jks

@@ -1,0 +1,63 @@
+name: Android APK (Release)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Signiertes APK bauen und als Release veröffentlichen
+    runs-on: ubuntu-latest
+    # GITHUB_TOKEN braucht Schreibrechte, um Tag + Release anzulegen.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Start-JDK für den Gradle-Launcher; den eigentlichen Daemon-JDK
+      # provisioniert Gradle selbst über gradle/gradle-daemon-jvm.properties
+      # (Foojay-Toolchain-Resolver).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # Upload-Keystore + key.properties aus Secrets wiederherstellen –
+      # gleiche Secrets-Namen wie bei den Geschwister-Apps (Stillzeit/
+      # Medikamente/Wickel). storeFile liegt relativ zum Projekt-Root,
+      # so löst app/build.gradle.kts den Pfad auf.
+      - name: Keystore & key.properties bereitstellen
+        env:
+          KEYSTORE_B64: ${{ secrets.PLAY_KEYSTORE_BASE64 }}
+          KEYSTORE_PW: ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PLAY_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.PLAY_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > upload-keystore.jks
+          sz=$(stat -c%s upload-keystore.jks 2>/dev/null || echo 0)
+          if [ "$sz" -lt 100 ]; then
+            echo "::error::PLAY_KEYSTORE_BASE64 ergibt nur $sz Bytes – Secret fehlt oder ist kein gültiges Base64."
+            exit 1
+          fi
+          cat > key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=$KEYSTORE_PW
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PW
+          EOF
+
+      # versionCode = 100 + run_number: bleibt strikt monoton und liegt
+      # sicher über dem letzten versionCode der Flutter-App (7). HelloBaby
+      # ist nicht im Play Store – Verteilung nur über das GitHub-Release.
+      - name: Signiertes APK bauen
+        run: ./gradlew :app:assembleRelease -PbuildNumber=$((100 + GITHUB_RUN_NUMBER))
+
+      - name: APK als GitHub-Release veröffentlichen
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: app/build/outputs/apk/release/app-release.apk
+          asset_name: HelloBaby-v3.0.0-${{ github.run_number }}.apk
+          tag: v3.0.0-${{ github.run_number }}
+          overwrite: true
+          body: "HelloBaby! v3.0.0 (Lauf ${{ github.run_number }}) – signiertes APK zur Direktinstallation (Update über die installierte Flutter-App)"

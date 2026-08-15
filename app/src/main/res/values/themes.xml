@@ -1,0 +1,7 @@
+<resources>
+    <!-- Nur die Hülle um den Compose-Inhalt: Fensterhintergrund nach App-Theme,
+         damit beim Start kein andersfarbiger Frame aufblitzt. -->
+    <style name="Theme.HelloBaby" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/fenster_hintergrund</item>
+    </style>
+</resources>
