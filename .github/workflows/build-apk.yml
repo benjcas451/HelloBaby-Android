@@ -2,6 +2,11 @@ name: Android APK (Release)
 
 on:
   workflow_dispatch:
+    inputs:
+      play_upload:
+        description: "Bundle zusätzlich in den Play-Track (alpha) hochladen"
+        type: boolean
+        default: true
 
 jobs:
   build-apk:
@@ -47,10 +52,14 @@ jobs:
           EOF
 
       # versionCode = 100 + run_number: bleibt strikt monoton und liegt
-      # sicher über dem letzten versionCode der Flutter-App (7). HelloBaby
-      # ist nicht im Play Store – Verteilung nur über das GitHub-Release.
+      # sicher über dem letzten versionCode der Flutter-App (7). APK fürs
+      # GitHub-Release, App Bundle für den Play-Upload.
       - name: Signiertes APK bauen
         run: ./gradlew :app:assembleRelease -PbuildNumber=$((100 + GITHUB_RUN_NUMBER))
+
+      - name: Signiertes App-Bundle für Play bauen
+        if: ${{ inputs.play_upload }}
+        run: ./gradlew :app:bundleRelease -PbuildNumber=$((100 + GITHUB_RUN_NUMBER))
 
       - name: APK als GitHub-Release veröffentlichen
         uses: svenstaro/upload-release-action@v2
@@ -60,4 +69,20 @@ jobs:
           asset_name: HelloBaby-v3.0.0-${{ github.run_number }}.apk
           tag: v3.0.0-${{ github.run_number }}
           overwrite: true
-          body: "HelloBaby! v3.0.0 (Lauf ${{ github.run_number }}) – signiertes APK zur Direktinstallation (Update über die installierte Flutter-App)"
+          body: "HelloBaby! v3.0.0 (Lauf ${{ github.run_number }}) – signiertes APK zur Direktinstallation (Update über die installierte Flutter-App); Play-Upload erfolgt als App Bundle"
+
+      # Track-Namen sind case-sensitiv; wie bei den Geschwister-Apps heißt
+      # der Closed-Testing-Track "alpha".
+      - name: AAB in Play hochladen (alpha)
+        if: ${{ inputs.play_upload }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ch.tschir.HelloBaby
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          tracks: alpha
+          status: completed
+
+      - name: Keystore aufräumen
+        if: always()
+        run: rm -f upload-keystore.jks key.properties

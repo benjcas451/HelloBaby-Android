@@ -7,7 +7,7 @@ komplett lokal oder gegen eine eigene Server-API.
 - **Sprache/UI:** Kotlin, Jetpack Compose (Material 3, eigenes Baby-Grün-Theme)
 - **applicationId:** `ch.tschir.HelloBaby` (identisch zur Flutter-App → Installation ist ein Update)
 - **Version:** 3.0.0, versionCode lokal 8, in CI `100 + run_number`
-- **Kein Play Store:** Verteilung als signiertes APK über GitHub-Releases
+- **Verteilung:** signiertes APK über GitHub-Releases + App Bundle in den Play-Track `alpha`
 
 ## Funktionsumfang
 
@@ -44,7 +44,8 @@ Release-Builds erwarten `key.properties` im Projekt-Root (siehe
 ## CI
 
 `.github/workflows/build-apk.yml` (manuell auslösbar) baut ein signiertes
-APK und hängt es an ein GitHub-Release (`v3.0.0-<run>`), Play-Upload gibt
-es bewusst nicht. Benötigte Secrets (Namen wie bei den Geschwister-Apps):
-`PLAY_KEYSTORE_BASE64`, `PLAY_KEYSTORE_PASSWORD`, `PLAY_KEY_ALIAS`,
-`PLAY_KEY_PASSWORD`.
+APK, hängt es an ein GitHub-Release (`v3.0.0-<run>`) und lädt zusätzlich
+ein App Bundle in den Play-Track `alpha` (abschaltbar über den
+Workflow-Input `play_upload`). Benötigte Secrets (Namen wie bei den
+Geschwister-Apps): `PLAY_KEYSTORE_BASE64`, `PLAY_KEYSTORE_PASSWORD`,
+`PLAY_KEY_ALIAS`, `PLAY_KEY_PASSWORD`, `PLAY_SERVICE_ACCOUNT_JSON`.
