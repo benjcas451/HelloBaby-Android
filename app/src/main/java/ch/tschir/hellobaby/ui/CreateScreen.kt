@@ -110,6 +110,9 @@ fun CreateScreen(
     var vonName by remember { mutableStateOf("") }
     var nutzer by remember { mutableStateOf<List<String>>(emptyList()) }
     val medien = remember { mutableStateListOf<GewaehltesMedium>() }
+    // Anzahl Medien, die gerade übernommen werden – große Videos brauchen
+    // dafür mehrere Sekunden (Kopie aus dem MediaStore).
+    var medienLadenAnzahl by remember { mutableStateOf(0) }
     var speichert by remember { mutableStateOf(false) }
     var uploadFortschritt by remember { mutableStateOf<Float?>(null) }
     var zeigeDatumswahl by remember { mutableStateOf(false) }
@@ -127,28 +130,44 @@ fun CreateScreen(
         }
     }
 
-    /** Kopiert eine Picker-Uri in den Cache, damit Name+Inhalt stabil bleiben. */
-    fun uebernehmeUri(uri: Uri) {
+    /**
+     * Kopiert eine Picker-Uri in den Cache, damit Name+Inhalt stabil bleiben.
+     * Läuft auf dem IO-Dispatcher – große Videos würden den UI-Thread sonst
+     * sekundenlang blockieren.
+     */
+    suspend fun uebernehmeUri(uri: Uri) {
         runCatching {
-            val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val spalte = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && spalte >= 0) cursor.getString(spalte) else null
-            } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "medium"
-            val ziel = File(context.cacheDir, "captures").apply { mkdirs() }
-                .resolve("${System.nanoTime()}_$name")
-            context.contentResolver.openInputStream(uri)!!.use { input ->
-                ziel.outputStream().use { input.copyTo(it) }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val spalte = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && spalte >= 0) cursor.getString(spalte) else null
+                } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "medium"
+                val ziel = File(context.cacheDir, "captures").apply { mkdirs() }
+                    .resolve("${System.nanoTime()}_$name")
+                context.contentResolver.openInputStream(uri)!!.use { input ->
+                    ziel.outputStream().use { input.copyTo(it) }
+                }
+                val mime = context.contentResolver.getType(uri).orEmpty()
+                GewaehltesMedium(ziel, mime.startsWith("video") || isVideoFile(name))
             }
-            val mime = context.contentResolver.getType(uri).orEmpty()
-            medien.add(GewaehltesMedium(ziel, mime.startsWith("video") || isVideoFile(name)))
-        }.onFailure {
-            scope.launch { snackbar.showSnackbar("Medium konnte nicht übernommen werden: ${it.message}") }
-        }
+        }.fold(
+            onSuccess = { medien.add(it) },
+            onFailure = { snackbar.showSnackbar("Medium konnte nicht übernommen werden: ${it.message}") },
+        )
     }
 
     val galerieWahl = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(),
-    ) { uris -> uris.forEach(::uebernehmeUri) }
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        medienLadenAnzahl += uris.size
+        scope.launch {
+            uris.forEach { uri ->
+                uebernehmeUri(uri)
+                medienLadenAnzahl = (medienLadenAnzahl - 1).coerceAtLeast(0)
+            }
+        }
+    }
 
     val fotoAufnahme = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture(),
@@ -176,6 +195,10 @@ fun CreateScreen(
     }
 
     fun speichern() {
+        if (medienLadenAnzahl > 0) {
+            scope.launch { snackbar.showSnackbar("Bitte warten – Medien werden noch übernommen.") }
+            return
+        }
         val pflichtFehlt = diary.fields.any { it.required && werte.value[it.key].orEmpty().isBlank() }
         if (pflichtFehlt) {
             scope.launch { snackbar.showSnackbar("Bitte alle Pflichtfelder (*) ausfüllen.") }
@@ -350,9 +373,21 @@ fun CreateScreen(
                 }
             }
 
-            if (medien.isNotEmpty()) {
+            if (medien.isNotEmpty() || medienLadenAnzahl > 0) {
                 Spacer(Modifier.height(12.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Platzhalter für Medien, die noch übernommen werden.
+                    items(medienLadenAnzahl) {
+                        Box(
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                        }
+                    }
                     items(medien.size) { index ->
                         val medium = medien[index]
                         Box {
@@ -400,6 +435,15 @@ fun CreateScreen(
                 }
             }
 
+            if (medienLadenAnzahl > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Medien werden übernommen – bitte kurz warten.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Spacer(Modifier.height(28.dp))
 
             // Upload-Fortschritt
@@ -435,17 +479,23 @@ fun CreateScreen(
             // Speichern
             Button(
                 onClick = { if (!speichert) speichern() },
-                enabled = !speichert,
+                enabled = !speichert && medienLadenAnzahl == 0,
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
-                if (speichert) {
+                if (speichert || medienLadenAnzahl > 0) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
                     Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(20.dp))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(if (speichert) "Speichern..." else "Speichern")
+                Text(
+                    when {
+                        medienLadenAnzahl > 0 -> "Medien werden übernommen..."
+                        speichert -> "Speichern..."
+                        else -> "Speichern"
+                    },
+                )
             }
         }
     }
