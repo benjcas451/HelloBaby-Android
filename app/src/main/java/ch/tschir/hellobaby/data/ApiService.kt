@@ -79,7 +79,13 @@ class ApiService(context: Context) {
         val mode = settings.mode
         client?.let { if (clientMode == mode) return it }
         client?.connectionPool?.evictAll()
+        // Großzügige Timeouts: Video-Uploads dauern Minuten, und nach dem
+        // Upload braucht der Server Zeit für die Verarbeitung, bevor die
+        // Antwort kommt (OkHttp-Default von 10 s bräche dann ab).
         val builder = OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(20))
+            .writeTimeout(java.time.Duration.ofMinutes(5))
+            .readTimeout(java.time.Duration.ofMinutes(5))
         if (mode == DataSourceMode.MTLS) {
             val (cert, key) = certSource.readCredentials()
             val (factory, trust) = ClientCertificates.socketFactoryMitTrust(cert, key)
