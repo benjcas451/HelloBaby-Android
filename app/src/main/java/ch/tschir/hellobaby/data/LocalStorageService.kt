@@ -142,9 +142,31 @@ class LocalStorageService private constructor(context: Context) {
             }
         }
 
+    /**
+     * Bezieht einen gespeicherten Medienordner auf das aktuelle
+     * Medienverzeichnis, falls er dort nicht mehr liegt.
+     *
+     * Die Spalte `bilder` enthält absolute Pfade (so schon in der
+     * Flutter-App). Nach einem Gerätewechsel oder einer Wiederherstellung
+     * kann das Datenverzeichnis aber einen anderen Präfix haben – etwa
+     * `/data/user/10/…` in einem zweiten Nutzerprofil. Dann zeigen sämtliche
+     * Einträge ins Leere und die App wirkt, als wären alle Fotos weg.
+     *
+     * Umgeschrieben wird nur, wenn der gespeicherte Ordner tatsächlich
+     * fehlt und der gleichnamige unter [mediaDirectory] existiert. Im
+     * Normalfall ändert sich damit nichts; [restoreRows] macht für das
+     * eigene Backup-Format längst dasselbe.
+     */
+    private fun rebaseMedienordner(gespeichert: String): String {
+        if (gespeichert.isEmpty() || !gespeichert.startsWith("/")) return gespeichert
+        if (File(gespeichert).isDirectory) return gespeichert
+        val ersatz = File(File(rootDirectory, "media"), gespeichert.substringAfterLast('/'))
+        return if (ersatz.isDirectory) ersatz.path else gespeichert
+    }
+
     private fun entryFromCursor(cursor: android.database.Cursor): Entry {
         fun text(name: String) = cursor.getString(cursor.getColumnIndexOrThrow(name)).orEmpty()
-        val folder = text("bilder")
+        val folder = rebaseMedienordner(text("bilder"))
         val decoded = runCatching { JSONObject(text("fields_json")) }.getOrElse { JSONObject() }
         val fields = mutableMapOf<String, String>()
         decoded.keys().forEach { key ->

@@ -227,6 +227,16 @@ fun CreateScreen(
                 settings.selectedUser = vonName
             }.fold(
                 onSuccess = {
+                    // Die Zwischenkopien unter cacheDir/captures haben ihren
+                    // Zweck erfuellt: lokal hat createEntry sie in den
+                    // media-Ordner kopiert, im Server-Modus sind sie
+                    // hochgeladen. Ohne das Aufraeumen bliebe jedes Foto und
+                    // jedes Video dauerhaft ein zweites Mal auf dem Geraet.
+                    val temporaer = medien.map { it.datei }
+                    medien.clear()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        temporaer.forEach { runCatching { it.delete() } }
+                    }
                     speichert = false
                     uploadFortschritt = null
                     onZurueck()

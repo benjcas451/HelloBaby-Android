@@ -1,19 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+   Regeln fuer Android 12+ (API 31+). Cloud-Backup und Geraete-Transfer
+   werden bewusst unterschiedlich behandelt.
+
+   Sobald ein <include> gesetzt ist, wird ausschliesslich das Aufgefuehrte
+   gesichert - die Regeln unten sind also eine vollstaendige Whitelist.
+
+   Ablage der App (LocalStorageService): getDir("flutter") liegt unter dem
+   App-Wurzelverzeichnis, also Domain "root" mit app_flutter/HelloBaby/.
+   Darunter die Datenbank hello_baby.sqlite und der Ordner media/.
+
+   Cloud-Backup: nur der Datenbank-Ordner, ohne media/. Eingebunden wird
+   das Verzeichnis statt nur hello_baby.sqlite, weil SQLite hier im
+   WAL-Modus laeuft - frische Schreibvorgaenge stehen noch in
+   hello_baby.sqlite-wal, ohne die ein veralteter Stand zurueckkaeme.
+   Der media-Ordner bleibt aussen vor: Fotos und Videos sprengen das
+   Kontingent des Auto-Backups und wuerden es nicht vergroessern, sondern
+   ganz scheitern lassen. Ebenfalls nicht in die Cloud geht
+   hellobaby_settings.xml - darin stehen der API-Key und cert_folder_uri,
+   eine SAF-Ordner-URI, deren persistierte Berechtigung einen
+   Geraetewechsel ohnehin nicht ueberlebt.
+
+   Geraete-Transfer: laeuft direkt und Ende-zu-Ende-verschluesselt zwischen
+   altem und neuem Geraet und kennt das Kontingent des Cloud-Backups nicht.
+   Hier duerfen Medien und Einstellungen mit, damit der Umzug nahtlos ist.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <include domain="root" path="app_flutter/HelloBaby" />
+        <exclude domain="root" path="app_flutter/HelloBaby/media" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <include domain="root" path="app_flutter/HelloBaby" />
+        <include domain="sharedpref" path="hellobaby_settings.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>
