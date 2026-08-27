@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+   Auto-Backup fuer Geraete bis Android 11 (API 30). Dort gibt es nur das
+   Cloud-Backup, keinen getrennten Geraete-Transfer - gesichert wird
+   deshalb ausschliesslich der Datenbank-Ordner (inklusive der
+   WAL-Datei hello_baby.sqlite-wal, sonst kaeme ein veralteter Stand
+   zurueck).
+
+   Der media-Ordner bleibt aussen vor (Fotos/Videos sprengen das
+   Backup-Kontingent), ebenso hellobaby_settings.xml mit API-Key und
+   geraetegebundener SAF-URI. Siehe data_extraction_rules.xml.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <include domain="root" path="app_flutter/HelloBaby" />
+    <exclude domain="root" path="app_flutter/HelloBaby/media" />
 </full-backup-content>

@@ -112,20 +112,28 @@ fun ImageFeedScreen(
                 laedt -> LadeAnsicht()
                 fehler != null -> FehlerAnsicht("Fehler: $fehler") { ladeZaehler++ }
                 else -> {
-                    // Kacheln je Tag: (Eintrag, Datei)-Paare.
-                    val gruppen = linkedMapOf<String, MutableList<Pair<Entry, String>>>()
-                    for (eintrag in eintraege) {
-                        val medien = eintrag.bilderFiles.filter { isImageFile(it) || isVideoFile(it) }
-                        for (datei in medien) {
-                            gruppen.getOrPut(eintrag.kalenderDatum) { mutableListOf() }
-                                .add(eintrag to datei)
+                    // Kacheln je Tag: (Eintrag, Datei)-Paare. An [eintraege]
+                    // gebunden, sonst baut jede Recomposition (Vollbild auf/zu,
+                    // Ladezustand) die komplette Map neu auf und sortiert die
+                    // Tage erneut - bei vielen Eintraegen unnoetige Last und
+                    // Allokationen auf dem Hauptthread.
+                    val gruppen = remember(eintraege) {
+                        linkedMapOf<String, MutableList<Pair<Entry, String>>>().apply {
+                            for (eintrag in eintraege) {
+                                val medien = eintrag.bilderFiles
+                                    .filter { isImageFile(it) || isVideoFile(it) }
+                                for (datei in medien) {
+                                    getOrPut(eintrag.kalenderDatum) { mutableListOf() }
+                                        .add(eintrag to datei)
+                                }
+                            }
                         }
                     }
                     if (gruppen.isEmpty()) {
                         LeerAnsicht(Icons.Filled.PermMedia, "Noch keine Beiträge mit Medien vorhanden")
                         return@Column
                     }
-                    val tage = gruppen.keys.sortedDescending()
+                    val tage = remember(gruppen) { gruppen.keys.sortedDescending() }
 
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),

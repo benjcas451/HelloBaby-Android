@@ -53,8 +53,13 @@ android {
 
     buildTypes {
         release {
+            // R8 verkleinert das Bundle deutlich und optimiert den Bytecode;
+            // das wear-Modul nutzt es laengst (dort gemessen: 7,0 -> 2,9 MB).
+            // Play verlangt die Codeoptimierung nun auch fuer die Handy-App.
+            // Keep-Regeln: src/main/keepRules/rules.keep. Die Mapping-Datei
+            // legt AGP automatisch ins AAB.
             optimization {
-                enable = false
+                enable = true
             }
             // Ohne key.properties mit dem Debug-Key signieren, damit sich ein
             // Release-Build lokal auch ohne Keystore erzeugen laesst.
