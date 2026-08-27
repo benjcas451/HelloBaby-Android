@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -106,6 +107,51 @@ Authentifizierung der geschützten Endpunkte je nach Modus:
 Fehler kommen als {"error": "..."} mit passendem HTTP-Statuscode.
 """
 
+/** Beschreibung der lokalen Ablage (für den Dialog "Aufbau Datenbank"). */
+private const val DB_INFO_TEXT = """
+Im Modus "Lokal" speichert die App alles auf dem Gerät: die Einträge in der Datenbank hello_baby.sqlite, die Fotos und Videos daneben im Ordner media. Beides liegt im app-privaten Bereich, andere Apps haben keinen Zugriff, und es findet keine Synchronisation statt.
+
+Tabelle "entries":
+
+• id
+  INTEGER, Primärschlüssel (Auto-Increment)
+
+• diary
+  TEXT, welches Tagebuch: schwangerschaft oder entwicklung
+
+• kalender_datum
+  TEXT, Tag des Eintrags als YYYY-MM-DD
+
+• bilder
+  TEXT, absoluter Pfad zum Medienordner des Eintrags (…/media/<tagebuch>_<id>) – leer, wenn der Eintrag keine Medien hat. Liegt der Ordner nach einer Wiederherstellung woanders, sucht die App ihn anhand des Ordnernamens im aktuellen media-Verzeichnis.
+
+• von_name
+  TEXT, wer den Eintrag angelegt hat
+
+• favorit
+  INTEGER (0/1)
+
+• created_at
+  TEXT, Zeitpunkt der Erstellung
+
+• fields_json
+  TEXT, die tagebuchspezifischen Felder als JSON-Objekt. So kommen neue Felder ohne Schemaänderung dazu.
+
+Dazu die Tabelle "remote_imports": sie merkt sich, welcher lokale Eintrag bereits zu welchem Server hochgeladen wurde, damit ein zweiter Import keine Dubletten anlegt.
+
+Sicherung & Gerätewechsel
+
+Android sichert die App automatisch. Was dabei mitgeht, legt die App bewusst unterschiedlich fest:
+
+• Cloud-Backup (über das Google-Konto)
+  Nur die Datenbank, also die Einträge samt Texten. Fotos und Videos bleiben außen vor – sie sind um ein Vielfaches größer als das, was ein automatisches Backup aufnehmen darf, und würden es nicht vergrößern, sondern ganz scheitern lassen. Ebenfalls nicht mit in die Cloud gehen die Einstellungen, weil dort der API-Key steht.
+
+• Direkter Gerätewechsel (altes Gerät → neues Gerät)
+  Hier gibt es diese Grenze nicht: Medien und Einstellungen kommen mit. Die Übertragung läuft Ende-zu-Ende-verschlüsselt unmittelbar zwischen den beiden Geräten.
+
+Nach einer Wiederherstellung aus der Cloud sind die Einträge also vollständig da, die zugehörigen Fotos und Videos aber nicht – für die ist das ZIP-Backup weiter unten der richtige Weg. Server-Adresse und API-Key müssen in dem Fall ebenfalls neu eingetragen werden, den Zertifikats-Ordner für mTLS muss man in beiden Fällen neu auswählen.
+"""
+
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
@@ -131,7 +177,7 @@ fun SettingsScreen(
     var restauriert by remember { mutableStateOf(false) }
     var importiert by remember { mutableStateOf(false) }
     var importStand by remember { mutableStateOf(0 to 0) }
-    var infoDialog by remember { mutableStateOf(false) }
+    var infoDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
     var personDialog by remember { mutableStateOf(false) }
     var restoreNachfrage by remember { mutableStateOf(false) }
     var importNachfrage by remember { mutableStateOf(false) }
@@ -475,13 +521,22 @@ fun SettingsScreen(
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Abschnitt("Erklärung")
                 OutlinedButton(
-                    onClick = { infoDialog = true },
+                    onClick = { infoDialog = "Aufbau API" to API_INFO_TEXT.trim() },
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 ) {
                     Icon(Icons.Outlined.Cloud, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Aufbau API")
+                }
+                OutlinedButton(
+                    onClick = { infoDialog = "Aufbau Datenbank" to DB_INFO_TEXT.trim() },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Icon(Icons.Filled.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Aufbau Datenbank")
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -583,17 +638,17 @@ fun SettingsScreen(
         )
     }
 
-    if (infoDialog) {
+    infoDialog?.let { (titel, inhalt) ->
         AlertDialog(
-            onDismissRequest = { infoDialog = false },
-            title = { Text("Aufbau API") },
+            onDismissRequest = { infoDialog = null },
+            title = { Text(titel) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(API_INFO_TEXT.trim())
+                    Text(inhalt)
                 }
             },
             confirmButton = {
-                TextButton(onClick = { infoDialog = false }) { Text("Schließen") }
+                TextButton(onClick = { infoDialog = null }) { Text("Schließen") }
             },
         )
     }
