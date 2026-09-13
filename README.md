@@ -129,6 +129,47 @@ dem, sodass eine HTML-Seite mit Status 200 ankommt. `ApiService` erkennt das
 am Host der finalen Anfrage (Subdomain von `cloudflareaccess.com`) bzw. an
 einem 403 mit `cf-ray`-Header und meldet es als Token-Problem.
 
+## Offline-Betrieb
+
+Bricht die Verbindung weg, bleibt die App benutzbar. Die Logik sitzt im
+`ApiService` selbst (er ist die einzige Datenquelle) und greift nur in den
+Server-Modi.
+
+**Lesen:** Jede erfolgreiche GET-Antwort landet roh als JSON in
+`filesDir/offline/antworten_<zugang>/`, benannt nach der vollständigen URL.
+Scheitert eine Abfrage an einem Netzwerkfehler, kommt die Antwort von dort.
+Damit funktionieren Tagesansicht, Monatsansicht, Favoriten, Galerie und
+Statistik gleichermassen.
+
+**Schreiben:** Anlegen, Löschen und das Umschalten eines Favoriten gehen in
+eine Warteschlange, wenn sie den Server nachweislich nie erreicht haben
+(`UnknownHostException`, `ConnectException`, `NoRouteToHostException`,
+`SSLException`). Ein `SocketTimeout` oder jede andere `IOException` bleibt
+mehrdeutig — der Server könnte den Eintrag längst haben, ein zweiter Versuch
+legte dann einen zweiten an. Gerade beim Hochladen eines Videos ist das der
+wahrscheinlichere Fall, deshalb bleibt es dort bei der Fehlermeldung.
+
+**Medien wandern mit.** Ein offline erstellter Eintrag behält seine Fotos und
+Videos: Die Dateien werden nach `filesDir/offline/medien_<zugang>/<uuid>/`
+kopiert und von dort hochgeladen. Nach erfolgreichem Upload (oder wenn der
+Eintrag verworfen wird) verschwindet der Ordner; verwaiste Ordner ohne
+zugehörige Aktion räumt das Nachholen auf.
+
+**Ordnung.** Neue Einträge bekommen eine negative lokale Kennung. Eine
+Löschung, die einen noch wartenden Eintrag trifft, entfernt dessen Aktion
+samt Favoriten-Umschaltungen und Medien. Solange etwas ansteht, geht auch ein
+neuer Schreibzugriff hinten dran statt am Stau vorbei.
+
+**Abgearbeitet** wird vor jedem Laden des Startbildschirms und sobald der
+`ConnectivityManager` wieder ein Netz meldet. Das Nachholen benutzt die rohen
+Aufrufe (`ladeHoch`, `loescheDirekt`, `favoritDirekt`) statt der öffentlichen
+Methoden — sonst würde es dieselbe Aktion in einer Schleife erneut vormerken.
+Beim ersten Verbindungsfehler bricht der Durchlauf ab, der Rest bleibt in der
+Reihenfolge stehen. Vom Server inhaltlich zurückgewiesene Aktionen fliegen
+raus und werden einmal gemeldet.
+
+Die Ablage hängt am Zugang (Modus + Server-URL).
+
 Uploads laufen gestreamt (`asRequestBody`), nicht über den Arbeitsspeicher;
 die Timeouts sind auf 5 Minuten gesetzt, weil Videos lange dauern und der
 Server nach dem Upload noch verarbeitet.

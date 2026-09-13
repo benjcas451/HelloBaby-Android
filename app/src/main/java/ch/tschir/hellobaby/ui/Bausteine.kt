@@ -234,7 +234,16 @@ fun EntryCard(
                     IconButton(onClick = {
                         favLaedt = true
                         scope.launch {
-                            runCatching { api.toggleFavorite(entry.id, entry.diary.ifEmpty { activeDiary }) }
+                            // Den aktuellen Stand mitgeben: ohne Verbindung
+                            // bildet der Client den neuen Wert daraus selbst,
+                            // die API liefert ihn sonst erst in ihrer Antwort.
+                            runCatching {
+                                api.toggleFavorite(
+                                    entry.id,
+                                    entry.diary.ifEmpty { activeDiary },
+                                    aktuell = favorit,
+                                )
+                            }
                                 .onSuccess {
                                     favorit = it
                                     entry.favorit = it
