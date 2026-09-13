@@ -11,25 +11,41 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import ch.tschir.hellobaby.data.MedienClient
 import ch.tschir.hellobaby.isLocalMediaSource
 
-/** Vollbild-Videoplayer (Media3/ExoPlayer) für lokale Dateien und Server-URLs. */
+/**
+ * Vollbild-Videoplayer (Media3/ExoPlayer) für lokale Dateien und Server-URLs.
+ *
+ * Server-URLs laufen über denselben OkHttp-Client wie der Rest der App. Ohne
+ * dessen Kopfzeilen blockiert Cloudflare Access die Anfrage am Rand, und der
+ * Player zeigte nur einen schwarzen Bildschirm.
+ */
 @Composable
 fun VideoPlayerScreen(url: String, onZurueck: () -> Unit) {
     val context = LocalContext.current
     val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val uri = if (isLocalMediaSource(url)) {
-                android.net.Uri.fromFile(java.io.File(url))
-            } else {
-                android.net.Uri.parse(url)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(
+                    OkHttpDataSource.Factory(MedienClient.callFactory(context)),
+                ),
+            )
+            .build()
+            .apply {
+                val uri = if (isLocalMediaSource(url)) {
+                    android.net.Uri.fromFile(java.io.File(url))
+                } else {
+                    android.net.Uri.parse(url)
+                }
+                setMediaItem(MediaItem.fromUri(uri))
+                prepare()
+                playWhenReady = true
             }
-            setMediaItem(MediaItem.fromUri(uri))
-            prepare()
-            playWhenReady = true
-        }
     }
 
     DisposableEffect(Unit) {

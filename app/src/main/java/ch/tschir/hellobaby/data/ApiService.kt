@@ -30,9 +30,12 @@ class ApiException(message: String, val statusCode: Int? = null) : Exception(mes
  * Zentrale Datenquelle: je nach Modus die lokale Ablage ([LocalStorageService])
  * oder die Server-API unter `<serverBase>/api/…`.
  *
- * Authentifizierung: `X-API-Key`-Header in beiden Server-Modi (falls Key
- * hinterlegt), bei mTLS zusätzlich das Client-Zertifikat im TLS-Handshake.
- * Bilder/Thumbs/Medien liefert der Server offen aus (kein Auth-Header nötig).
+ * Authentifizierung: `X-API-Key`-Header in allen Server-Modi (falls Key
+ * hinterlegt), bei mTLS zusätzlich das Client-Zertifikat im TLS-Handshake,
+ * im Cloudflare-Modus die beiden Service-Token-Header. Bilder, Thumbs und
+ * Medien laufen seit 3.1.0 über dieselben Kopfzeilen
+ * ([AppSettings.authHeader]) – hinter Cloudflare Access blockiert der Rand
+ * sonst auch sie.
  */
 class ApiService(context: Context) {
 
@@ -69,6 +72,8 @@ class ApiService(context: Context) {
 
     /** Verwirft den gecachten HTTP-Client (nach Einstellungsänderungen). */
     fun reset() {
+        // Medien hängen an denselben Zugangsdaten und am selben Zertifikat.
+        MedienClient.reset()
         client?.dispatcher?.executorService?.shutdown()
         client?.connectionPool?.evictAll()
         client = null
@@ -98,8 +103,7 @@ class ApiService(context: Context) {
     }
 
     private fun Request.Builder.auth(): Request.Builder {
-        val key = settings.apiKey
-        if (key.isNotEmpty()) header("X-API-Key", key)
+        for ((feld, wert) in settings.authHeader()) header(feld, wert)
         return this
     }
 
@@ -244,6 +248,9 @@ class ApiService(context: Context) {
 
     private suspend fun ausfuehren(request: Request): Any? = withContext(Dispatchers.IO) {
         httpClient().newCall(request).execute().use { response ->
+            CloudflareServiceToken.abweisung(response)?.let {
+                throw ApiException(it, statusCode = response.code)
+            }
             val text = response.body?.string().orEmpty()
             if (response.code !in 200..299) {
                 val meldung = runCatching { JSONObject(text).optString("error") }

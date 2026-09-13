@@ -10,6 +10,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import ch.tschir.hellobaby.data.ApiService
 import ch.tschir.hellobaby.data.AppSettings
+import ch.tschir.hellobaby.data.MedienClient
+import coil3.SingletonImageLoader
 import ch.tschir.hellobaby.ui.CreateScreen
 import ch.tschir.hellobaby.ui.DayViewScreen
 import ch.tschir.hellobaby.ui.FavoritesScreen
@@ -37,6 +39,10 @@ sealed interface Ziel {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Coil laedt Bilder sonst ueber einen eigenen Client, also ohne
+        // Auth-Kopfzeilen und ohne Client-Zertifikat — hinter Cloudflare
+        // Access blockiert der Rand diese Anfragen.
+        SingletonImageLoader.setSafe { MedienClient.bildLader(it) }
         enableEdgeToEdge()
         setContent {
             HelloBabyTheme {

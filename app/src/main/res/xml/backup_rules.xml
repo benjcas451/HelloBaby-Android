@@ -6,8 +6,9 @@
    zurueck).
 
    Der media-Ordner bleibt aussen vor (Fotos/Videos sprengen das
-   Backup-Kontingent), ebenso hellobaby_settings.xml mit API-Key und
-   geraetegebundener SAF-URI. Siehe data_extraction_rules.xml.
+   Backup-Kontingent), ebenso hellobaby_settings.xml mit API-Key,
+   Cloudflare Service Token und geraetegebundener SAF-URI.
+   Siehe data_extraction_rules.xml.
 -->
 <full-backup-content>
     <include domain="root" path="app_flutter/HelloBaby" />

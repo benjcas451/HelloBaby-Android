@@ -13,7 +13,13 @@ enum class DataSourceMode(val gespeichert: String) {
     MTLS("mtls"),
 
     /** Server-API mit API-Key (`X-API-Key`-Header). */
-    API_KEY("apiKey");
+    API_KEY("apiKey"),
+
+    /**
+     * Server-API hinter Cloudflare Access, ausgewiesen per Service Token
+     * (`CF-Access-Client-Id`/`CF-Access-Client-Secret`).
+     */
+    CLOUDFLARE("cloudflare");
 
     companion object {
         fun fromGespeichert(value: String?): DataSourceMode =
@@ -46,6 +52,41 @@ class AppSettings(context: Context) {
     var apiKey: String
         get() = prefs.getString(KEY_API_KEY, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_API_KEY, value.trim()).apply()
+
+    /**
+     * Client-ID des Cloudflare Service Tokens; endet üblicherweise auf
+     * `.access`.
+     */
+    var cfAccessClientId: String
+        get() = prefs.getString(KEY_CF_CLIENT_ID, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CF_CLIENT_ID, value.trim()).apply()
+
+    /** Client-Secret des Cloudflare Service Tokens. */
+    var cfAccessClientSecret: String
+        get() = prefs.getString(KEY_CF_CLIENT_SECRET, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CF_CLIENT_SECRET, value.trim()).apply()
+
+    /**
+     * Das hinterlegte Service Token, oder null solange eine Hälfte fehlt –
+     * mit einer Hälfte weist Cloudflare die Anfrage genauso ab wie ganz ohne.
+     * Nur im Modus [DataSourceMode.CLOUDFLARE] relevant.
+     */
+    fun cfServiceToken(): CloudflareServiceToken? =
+        if (mode != DataSourceMode.CLOUDFLARE) {
+            null
+        } else {
+            CloudflareServiceToken.of(cfAccessClientId, cfAccessClientSecret)
+        }
+
+    /**
+     * Die Kopfzeilen, mit denen sich die App ausweist – auch für Medien, die
+     * nicht über [ApiService] laufen (Coil, ExoPlayer).
+     */
+    fun authHeader(): Map<String, String> = buildMap {
+        val key = apiKey
+        if (key.isNotEmpty()) put("X-API-Key", key)
+        cfServiceToken()?.let { putAll(it.header) }
+    }
 
     /** Basis-URL des Servers ohne abschließenden Slash; leer = nicht gesetzt. */
     var serverBase: String
@@ -152,6 +193,8 @@ class AppSettings(context: Context) {
 
         private const val KEY_MODE = "data_source_mode"
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_CF_CLIENT_ID = "cf_access_client_id"
+        private const val KEY_CF_CLIENT_SECRET = "cf_access_client_secret"
         private const val KEY_SERVER_BASE = "server_base_url"
         private const val KEY_APP_NAME = "app_display_name"
         private const val KEY_ACTIVE_DIARY = "active_diary"

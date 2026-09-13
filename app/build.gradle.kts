@@ -32,8 +32,8 @@ android {
         // Muss ueber dem versionCode der installierten Flutter-App liegen
         // (zuletzt 7); Updates per Sideloading verlangen steigende Codes.
         // Die CI uebergibt -PbuildNumber=100+run_number, lokal gilt der Fallback.
-        versionCode = (findProperty("buildNumber") as String?)?.toIntOrNull() ?: 8
-        versionName = "3.0.0"
+        versionCode = (findProperty("buildNumber") as String?)?.toIntOrNull() ?: 9
+        versionName = "3.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -103,6 +103,9 @@ dependencies {
     // Videoplayer.
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    // Video-Streams ueber denselben OkHttp-Client wie der Rest der App, damit
+    // Auth-Kopfzeilen und Client-Zertifikat auch beim Abspielen greifen.
+    implementation(libs.media3.datasource.okhttp)
     // Data-Layer-API: Anfragen der Wear-OS-App (WearRequestService).
     implementation(libs.play.services.wearable)
     // Zertifikats-Ordner via Storage Access Framework.
