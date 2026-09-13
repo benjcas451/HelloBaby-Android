@@ -40,6 +40,23 @@ object Hb {
     val outlineDunkel = Color(0xFF2C332D)
     val chipHell = Color(0xFFEDF3E6)
     val chipDunkel = Color(0xFF20271F)
+
+    // Hinweisleiste (Offline-Modus): warme Fläche, die sich vom Grün absetzt,
+    // ohne wie ein Fehler zu wirken.
+    val hinweisFlaecheHell = Color(0xFFFBF0D2)
+    val hinweisFlaecheDunkel = Color(0xFF3B3117)
+    val hinweisTextHell = Color(0xFF6B5312)
+    val hinweisTextDunkel = Color(0xFFF3DFA4)
+
+    /** Fläche der Hinweisleiste je nach Modus. */
+    @Composable
+    fun hinweisFlaeche(): Color =
+        if (isSystemInDarkTheme()) hinweisFlaecheDunkel else hinweisFlaecheHell
+
+    /** Text und Icon der Hinweisleiste je nach Modus. */
+    @Composable
+    fun hinweisText(): Color =
+        if (isSystemInDarkTheme()) hinweisTextDunkel else hinweisTextHell
 }
 
 private val HellesSchema = lightColorScheme(

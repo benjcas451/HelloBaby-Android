@@ -30,9 +30,12 @@ class ApiException(message: String, val statusCode: Int? = null) : Exception(mes
  * Zentrale Datenquelle: je nach Modus die lokale Ablage ([LocalStorageService])
  * oder die Server-API unter `<serverBase>/api/…`.
  *
- * Authentifizierung: `X-API-Key`-Header in beiden Server-Modi (falls Key
- * hinterlegt), bei mTLS zusätzlich das Client-Zertifikat im TLS-Handshake.
- * Bilder/Thumbs/Medien liefert der Server offen aus (kein Auth-Header nötig).
+ * Authentifizierung: `X-API-Key`-Header in allen Server-Modi (falls Key
+ * hinterlegt), bei mTLS zusätzlich das Client-Zertifikat im TLS-Handshake,
+ * im Cloudflare-Modus die beiden Service-Token-Header. Bilder, Thumbs und
+ * Medien laufen seit 3.1.0 über dieselben Kopfzeilen
+ * ([AppSettings.authHeader]) – hinter Cloudflare Access blockiert der Rand
+ * sonst auch sie.
  */
 class ApiService(context: Context) {
 
@@ -45,6 +48,18 @@ class ApiService(context: Context) {
     private var clientMode: DataSourceMode? = null
 
     private val isLocal get() = settings.mode == DataSourceMode.LOCAL
+
+    /**
+     * Ablage für Zwischenspeicher und Warteschlange des aktuellen Zugangs;
+     * null im lokalen Modus, der ohne Server auskommt.
+     */
+    private val speicher: OfflineSpeicher?
+        get() {
+            if (isLocal) return null
+            val basis = settings.serverBase
+            if (basis.isEmpty()) return null
+            return OfflineSpeicher(appContext, "${settings.mode.gespeichert}|$basis")
+        }
 
     /** Basis-URL der REST-API (`<serverBase>/api`). */
     private val apiBase: String
@@ -69,6 +84,8 @@ class ApiService(context: Context) {
 
     /** Verwirft den gecachten HTTP-Client (nach Einstellungsänderungen). */
     fun reset() {
+        // Medien hängen an denselben Zugangsdaten und am selben Zertifikat.
+        MedienClient.reset()
         client?.dispatcher?.executorService?.shutdown()
         client?.connectionPool?.evictAll()
         client = null
@@ -98,8 +115,7 @@ class ApiService(context: Context) {
     }
 
     private fun Request.Builder.auth(): Request.Builder {
-        val key = settings.apiKey
-        if (key.isNotEmpty()) header("X-API-Key", key)
+        for ((feld, wert) in settings.authHeader()) header(feld, wert)
         return this
     }
 
@@ -181,6 +197,31 @@ class ApiService(context: Context) {
         if (isLocal) {
             return local.createEntry(kalenderDatum, fields, vonName, images, diary)
         }
+        // Reihenfolge wahren: Steht schon etwas an, gehört auch das Neue
+        // hinten dran, statt es am Stau vorbeizuschicken.
+        if (warteschlange().isNotEmpty()) {
+            return vormerken(kalenderDatum, fields, vonName, images, diary, OfflineStatus.letzterGrund)
+        }
+        return try {
+            ladeHoch(kalenderDatum, fields, vonName, images, diary, onSendProgress)
+        } catch (fehler: Throwable) {
+            if (Netzfehler.aus(fehler) != Netzfehler.NIE_GESENDET) throw fehler
+            vormerken(kalenderDatum, fields, vonName, images, diary, fehler.meldung())
+        }
+    }
+
+    /**
+     * Lädt einen Eintrag samt Medien hoch. Ohne Offline-Logik — so benutzt ihn
+     * auch das Nachholen, das sonst in einer Schleife wieder vormerken würde.
+     */
+    private suspend fun ladeHoch(
+        kalenderDatum: String,
+        fields: Map<String, String>,
+        vonName: String,
+        images: List<File>,
+        diary: String,
+        onSendProgress: ((sent: Long, total: Long) -> Unit)? = null,
+    ): Int {
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("diary", diary)
             .addFormDataPart("kalender_datum", kalenderDatum)
@@ -203,11 +244,64 @@ class ApiService(context: Context) {
         val data = ausfuehren(
             Request.Builder().url("$apiBase/entries.php").auth().post(body).build(),
         ) as? JSONObject ?: throw ApiException("Unerwartete Antwort beim Erstellen.")
+        OfflineStatus.melde(null)
         return data.optInt("id")
+    }
+
+    /**
+     * Merkt einen Eintrag samt seiner Medien für später vor und liefert die
+     * negative lokale Kennung.
+     */
+    private fun vormerken(
+        kalenderDatum: String,
+        fields: Map<String, String>,
+        vonName: String,
+        images: List<File>,
+        diary: String,
+        grund: String,
+    ): Int {
+        val ablage = speicher ?: throw ApiException(grund)
+        val (ordner, namen) = ablage.uebernehmeMedien(images)
+        var id = -1
+        schreibeWarteschlange(ablage) { aktionen, naechste ->
+            id = naechste
+            aktionen.add(
+                Warteaktion.Anlegen(
+                    lokaleId = naechste,
+                    kalenderDatum = kalenderDatum,
+                    fields = fields,
+                    vonName = vonName,
+                    diary = diary,
+                    medienOrdner = ordner,
+                    medien = namen,
+                ),
+            )
+            naechste - 1
+        }
+        OfflineStatus.melde(grund)
+        return id
     }
 
     suspend fun deleteEntry(id: Int, diary: String) {
         if (isLocal) return local.deleteEntry(id, diary)
+        // Negative IDs kennt nur die App: der Eintrag wartet noch. Und solange
+        // etwas ansteht, bleibt die Reihenfolge gewahrt.
+        if (id < 0 || warteschlange().isNotEmpty()) {
+            loescheVorgemerkt(id, diary)
+            return
+        }
+        try {
+            loescheDirekt(id, diary)
+            OfflineStatus.melde(null)
+        } catch (fehler: Throwable) {
+            if (Netzfehler.aus(fehler) != Netzfehler.NIE_GESENDET) throw fehler
+            loescheVorgemerkt(id, diary)
+            OfflineStatus.melde(fehler.meldung())
+        }
+    }
+
+    /** Löscht ohne Offline-Logik — so benutzt es auch das Nachholen. */
+    private suspend fun loescheDirekt(id: Int, diary: String) {
         val url = "$apiBase/entries.php".toHttpUrlOrNull()!!.newBuilder()
             .addQueryParameter("id", id.toString())
             .addQueryParameter("diary", diary)
@@ -215,14 +309,69 @@ class ApiService(context: Context) {
         ausfuehren(Request.Builder().url(url).auth().delete().build())
     }
 
-    suspend fun toggleFavorite(id: Int, diary: String): Int {
+    /**
+     * Merkt eine Löschung vor. Einen Eintrag, der noch gar nicht beim Server
+     * war, wirft sie ersatzlos aus der Warteschlange – samt seiner
+     * Favoriten-Umschaltungen und seiner Medien.
+     */
+    private fun loescheVorgemerkt(id: Int, diary: String) {
+        val ablage = speicher ?: return
+        var wegzuraeumen: String? = null
+        schreibeWarteschlange(ablage) { aktionen, naechste ->
+            val index = aktionen.indexOfFirst {
+                it is Warteaktion.Anlegen && it.lokaleId == id
+            }
+            if (index >= 0) {
+                wegzuraeumen = (aktionen[index] as Warteaktion.Anlegen).medienOrdner
+                aktionen.removeAt(index)
+                aktionen.removeAll { it is Warteaktion.Favorit && it.id == id }
+            } else {
+                aktionen.add(Warteaktion.Loeschen(id, diary))
+            }
+            naechste
+        }
+        wegzuraeumen?.let { ablage.raeumeMedien(it) }
+    }
+
+    /**
+     * Kehrt den Favoriten-Status um und liefert den neuen Wert.
+     *
+     * [aktuell] braucht es nur für den Offline-Fall: Die API kennt lediglich
+     * „umschalten“ und liefert den neuen Wert erst in ihrer Antwort — ohne
+     * Verbindung muss die App ihn selbst bilden.
+     */
+    suspend fun toggleFavorite(id: Int, diary: String, aktuell: Int = 0): Int {
         if (isLocal) return local.toggleFavorite(id, diary)
+        if (id < 0 || warteschlange().isNotEmpty()) {
+            merkeFavorit(id, diary)
+            return if (aktuell == 1) 0 else 1
+        }
+        return try {
+            favoritDirekt(id, diary).also { OfflineStatus.melde(null) }
+        } catch (fehler: Throwable) {
+            if (Netzfehler.aus(fehler) != Netzfehler.NIE_GESENDET) throw fehler
+            merkeFavorit(id, diary)
+            OfflineStatus.melde(fehler.meldung())
+            if (aktuell == 1) 0 else 1
+        }
+    }
+
+    /** Schaltet ohne Offline-Logik um — so benutzt es auch das Nachholen. */
+    private suspend fun favoritDirekt(id: Int, diary: String): Int {
         val body = JSONObject().put("id", id).put("diary", diary).toString()
             .toRequestBody("application/json; charset=utf-8".toMediaType())
         val data = ausfuehren(
             Request.Builder().url("$apiBase/favorite.php").auth().post(body).build(),
         ) as? JSONObject ?: throw ApiException("Unerwartete Favorit-Antwort.")
         return data.optInt("favorit")
+    }
+
+    private fun merkeFavorit(id: Int, diary: String) {
+        val ablage = speicher ?: return
+        schreibeWarteschlange(ablage) { aktionen, naechste ->
+            aktionen.add(Warteaktion.Favorit(id, diary))
+            naechste
+        }
     }
 
     suspend fun getGalleryFiles(folder: String): List<String> {
@@ -237,13 +386,126 @@ class ApiService(context: Context) {
         return List(files.length()) { files.optString(it) }.filterNot { it.startsWith(".") }
     }
 
+    // ── Warteschlange ───────────────────────────────────────────────────────
+
+    /** Die offenen Schreibzugriffe des aktuellen Zugangs. */
+    private fun warteschlange(): List<Warteaktion> =
+        speicher?.ladeWarteschlange()?.first.orEmpty()
+
+    /**
+     * Ändert die Warteschlange und schreibt sie zurück. Der Block bekommt die
+     * Aktionen und die nächste lokale Kennung und liefert deren neuen Wert.
+     */
+    private fun schreibeWarteschlange(
+        ablage: OfflineSpeicher,
+        aenderung: (MutableList<Warteaktion>, Int) -> Int,
+    ) {
+        val (geladen, naechste) = ablage.ladeWarteschlange()
+        val aktionen = geladen.toMutableList()
+        val neueKennung = aenderung(aktionen, naechste)
+        ablage.speichere(aktionen, neueKennung)
+        OfflineStatus.melde(aktionen.size)
+    }
+
+    /**
+     * Arbeitet die Warteschlange von vorn ab.
+     *
+     * Bricht beim ersten Verbindungsfehler ab — der Rest bleibt in der
+     * Reihenfolge stehen. Weist der Server eine Aktion inhaltlich zurück (etwa
+     * einen längst gelöschten Eintrag), fliegt sie raus und wird gemeldet;
+     * sonst blockierte sie die Warteschlange für immer.
+     *
+     * Liefert die Meldungen zu verworfenen Aktionen.
+     */
+    suspend fun nachholen(): List<String> {
+        val ablage = speicher ?: return emptyList()
+        // Medienordner ohne zugehörige Aktion aufräumen – etwa nach einem
+        // Absturz zwischen Kopieren und Vormerken.
+        ablage.raeumeVerwaisteMedien(
+            warteschlange().filterIsInstance<Warteaktion.Anlegen>()
+                .mapTo(mutableSetOf()) { it.medienOrdner },
+        )
+
+        val verworfen = mutableListOf<String>()
+        while (true) {
+            val naechste = warteschlange().firstOrNull() ?: break
+            try {
+                sende(naechste, ablage)
+                erledige(naechste, ablage)
+            } catch (fehler: Throwable) {
+                if (Netzfehler.aus(fehler) != null) {
+                    OfflineStatus.melde(fehler.meldung())
+                    return verworfen
+                }
+                erledige(naechste, ablage)
+                verworfen.add(fehler.meldung())
+            }
+        }
+        OfflineStatus.melde(null)
+        return verworfen
+    }
+
+    private suspend fun sende(aktion: Warteaktion, ablage: OfflineSpeicher) {
+        when (aktion) {
+            is Warteaktion.Anlegen -> ladeHoch(
+                kalenderDatum = aktion.kalenderDatum,
+                fields = aktion.fields,
+                vonName = aktion.vonName,
+                images = ablage.medienDateien(aktion.medienOrdner, aktion.medien),
+                diary = aktion.diary,
+            )
+
+            is Warteaktion.Loeschen -> loescheDirekt(aktion.id, aktion.diary)
+            is Warteaktion.Favorit -> favoritDirekt(aktion.id, aktion.diary)
+        }
+    }
+
+    /**
+     * Nimmt die erledigte (oder verworfene) Aktion aus der Warteschlange und
+     * räumt ihre Medien weg.
+     */
+    private fun erledige(aktion: Warteaktion, ablage: OfflineSpeicher) {
+        schreibeWarteschlange(ablage) { aktionen, naechste ->
+            if (aktionen.isNotEmpty()) aktionen.removeAt(0)
+            naechste
+        }
+        if (aktion is Warteaktion.Anlegen) ablage.raeumeMedien(aktion.medienOrdner)
+    }
+
     // ── Transport ───────────────────────────────────────────────────────────
 
-    private suspend fun get(url: String): Any? =
-        ausfuehren(Request.Builder().url(url).auth().get().build())
+    /**
+     * Lesende Anfrage. Die Antwort landet im Zwischenspeicher und wird bei
+     * einem Netzwerkfehler von dort beantwortet — ob die Anfrage ankam,
+     * spielt beim Lesen keine Rolle.
+     */
+    private suspend fun get(url: String): Any? = try {
+        val text = ausfuehrenRoh(Request.Builder().url(url).auth().get().build())
+        speicher?.speichereAntwort(url, text)
+        OfflineStatus.melde(null)
+        alsJson(text)
+    } catch (fehler: Throwable) {
+        val zwischengespeichert = speicher?.ladeAntwort(url)
+        if (Netzfehler.aus(fehler) == null || zwischengespeichert == null) throw fehler
+        OfflineStatus.melde(fehler.meldung())
+        alsJson(zwischengespeichert)
+    }
 
-    private suspend fun ausfuehren(request: Request): Any? = withContext(Dispatchers.IO) {
+    private fun alsJson(text: String): Any? {
+        if (text.isEmpty()) return null
+        return runCatching { JSONObject(text) as Any }
+            .recoverCatching { JSONArray(text) as Any }
+            .getOrNull()
+    }
+
+    private suspend fun ausfuehren(request: Request): Any? = alsJson(ausfuehrenRoh(request))
+
+    /** Wie [ausfuehren], liefert aber den Rohtext – den braucht die Ablage. */
+    private suspend fun ausfuehrenRoh(request: Request): String = withContext(Dispatchers.IO) {
         httpClient().newCall(request).execute().use { response ->
+            CloudflareServiceToken.abweisung(response)?.let {
+                throw ApiException(it, statusCode = response.code)
+            }
             val text = response.body?.string().orEmpty()
             if (response.code !in 200..299) {
                 val meldung = runCatching { JSONObject(text).optString("error") }
@@ -251,10 +513,7 @@ class ApiService(context: Context) {
                     ?: "Anfrage fehlgeschlagen (${response.code})"
                 throw ApiException(meldung, statusCode = response.code)
             }
-            if (text.isEmpty()) return@use null
-            runCatching { JSONObject(text) as Any }
-                .recoverCatching { JSONArray(text) as Any }
-                .getOrNull()
+            text
         }
     }
 

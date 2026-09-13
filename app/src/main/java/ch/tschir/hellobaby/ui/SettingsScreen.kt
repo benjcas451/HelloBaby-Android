@@ -96,13 +96,17 @@ Wichtige Endpunkte:
 • GET <Basis-URL>/api/gallery.php?folder=uploads/<ordner>
   Dateien einer Galerie.
 
-Bilder/Video-Poster liefert /api/thumb.php (offen, ohne Auth), die Medien selbst
-/api/media.php?file=uploads/<ordner>/<datei> (offen; &download=1 erzwingt
-Content-Disposition: attachment).
+Bilder/Video-Poster liefert /api/thumb.php, die Medien selbst
+/api/media.php?file=uploads/<ordner>/<datei> (&download=1 erzwingt
+Content-Disposition: attachment). Die App ruft beide mit denselben Kopfzeilen
+ab wie die übrigen Endpunkte – hinter Cloudflare Access ist das zwingend,
+sonst blockiert der Rand die Anfrage.
 
-Authentifizierung der geschützten Endpunkte je nach Modus:
-• API-Key:  HTTP-Header  X-API-Key: <Key>
-• mTLS:     Client-Zertifikat (client.crt + client.key)
+Authentifizierung je nach Modus:
+• API-Key:    HTTP-Header  X-API-Key: <Key>
+• mTLS:       Client-Zertifikat (client.crt + client.key), API-Key optional
+• Cloudflare: Header CF-Access-Client-Id und CF-Access-Client-Secret,
+              API-Key optional
 
 Fehler kommen als {"error": "..."} mit passendem HTTP-Statuscode.
 """
@@ -144,12 +148,12 @@ Sicherung & Gerätewechsel
 Android sichert die App automatisch. Was dabei mitgeht, legt die App bewusst unterschiedlich fest:
 
 • Cloud-Backup (über das Google-Konto)
-  Nur die Datenbank, also die Einträge samt Texten. Fotos und Videos bleiben außen vor – sie sind um ein Vielfaches größer als das, was ein automatisches Backup aufnehmen darf, und würden es nicht vergrößern, sondern ganz scheitern lassen. Ebenfalls nicht mit in die Cloud gehen die Einstellungen, weil dort der API-Key steht.
+  Nur die Datenbank, also die Einträge samt Texten. Fotos und Videos bleiben außen vor – sie sind um ein Vielfaches größer als das, was ein automatisches Backup aufnehmen darf, und würden es nicht vergrößern, sondern ganz scheitern lassen. Ebenfalls nicht mit in die Cloud gehen die Einstellungen, weil dort der API-Key und das Cloudflare Service Token stehen.
 
 • Direkter Gerätewechsel (altes Gerät → neues Gerät)
   Hier gibt es diese Grenze nicht: Medien und Einstellungen kommen mit. Die Übertragung läuft Ende-zu-Ende-verschlüsselt unmittelbar zwischen den beiden Geräten.
 
-Nach einer Wiederherstellung aus der Cloud sind die Einträge also vollständig da, die zugehörigen Fotos und Videos aber nicht – für die ist das ZIP-Backup weiter unten der richtige Weg. Server-Adresse und API-Key müssen in dem Fall ebenfalls neu eingetragen werden, den Zertifikats-Ordner für mTLS muss man in beiden Fällen neu auswählen.
+Nach einer Wiederherstellung aus der Cloud sind die Einträge also vollständig da, die zugehörigen Fotos und Videos aber nicht – für die ist das ZIP-Backup weiter unten der richtige Weg. Server-Adresse, API-Key und ein etwaiges Cloudflare Service Token müssen in dem Fall ebenfalls neu eingetragen werden, den Zertifikats-Ordner für mTLS muss man in beiden Fällen neu auswählen.
 """
 
 @Composable
@@ -168,6 +172,9 @@ fun SettingsScreen(
     var mode by remember { mutableStateOf(settings.mode) }
     var serverUrl by remember { mutableStateOf(settings.serverBase) }
     var apiKey by remember { mutableStateOf(settings.apiKey) }
+    var cfClientId by remember { mutableStateOf(settings.cfAccessClientId) }
+    var cfClientSecret by remember { mutableStateOf(settings.cfAccessClientSecret) }
+    var cfSichtbar by remember { mutableStateOf(false) }
     var apiKeySichtbar by remember { mutableStateOf(false) }
     var appName by remember { mutableStateOf(settings.appName) }
     var nutzer by remember { mutableStateOf(settings.users) }
@@ -336,7 +343,8 @@ fun SettingsScreen(
             ModusZeile(
                 gewaehlt = mode != DataSourceMode.LOCAL,
                 titel = "API",
-                untertitel = "Server-API mit API-Key oder Client-Zertifikat.",
+                untertitel = "Server-API mit API-Key, Client-Zertifikat oder " +
+                    "Cloudflare Service Token.",
             ) {
                 if (mode == DataSourceMode.LOCAL) {
                     mode = DataSourceMode.API_KEY
@@ -402,6 +410,15 @@ fun SettingsScreen(
                     settings.mode = mode
                     api.reset()
                 }
+                ModusZeile(
+                    gewaehlt = mode == DataSourceMode.CLOUDFLARE,
+                    titel = "Cloudflare Access",
+                    untertitel = "Service Token, API-Key optional zusätzlich",
+                ) {
+                    mode = DataSourceMode.CLOUDFLARE
+                    settings.mode = mode
+                    api.reset()
+                }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Abschnitt("Server")
@@ -461,6 +478,36 @@ fun SettingsScreen(
                     }
                 }
 
+                // Cloudflare Access prüft das Service Token am Rand und reicht
+                // die Anfrage erst danach an den Server weiter. Beide Hälften
+                // sind nötig: mit einer weist Cloudflare genauso ab wie ohne.
+                if (mode == DataSourceMode.CLOUDFLARE) {
+                    Spacer(Modifier.height(8.dp))
+                    CfFeld(
+                        wert = cfClientId,
+                        titel = "Client-ID",
+                        hinweis = "Client-ID des Service Tokens, endet üblicherweise auf „.access“.",
+                        sichtbar = cfSichtbar,
+                        onSichtbarkeit = { cfSichtbar = !cfSichtbar },
+                    ) {
+                        cfClientId = it
+                        settings.cfAccessClientId = it
+                        api.reset()
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    CfFeld(
+                        wert = cfClientSecret,
+                        titel = "Client-Secret",
+                        hinweis = "Service Tokens laufen ab, standardmäßig nach einem Jahr.",
+                        sichtbar = cfSichtbar,
+                        onSichtbarkeit = { cfSichtbar = !cfSichtbar },
+                    ) {
+                        cfClientSecret = it
+                        settings.cfAccessClientSecret = it
+                        api.reset()
+                    }
+                }
+
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = apiKey,
@@ -469,13 +516,23 @@ fun SettingsScreen(
                         settings.apiKey = it
                         api.reset()
                     },
-                    label = { Text(if (mode == DataSourceMode.MTLS) "API-Key (optional)" else "API-Key") },
+                    label = {
+                        Text(
+                            if (mode == DataSourceMode.API_KEY) {
+                                "API-Key"
+                            } else {
+                                "API-Key (optional)"
+                            },
+                        )
+                    },
                     supportingText = {
                         Text(
-                            if (mode == DataSourceMode.MTLS) {
-                                "Optional – zusätzlich zum Client-Zertifikat, falls der Server beides verlangt."
-                            } else {
-                                "Pro Gerät ein eigener Key (vom Server ausgestellt)."
+                            when (mode) {
+                                DataSourceMode.MTLS ->
+                                    "Optional – zusätzlich zum Client-Zertifikat, falls der Server beides verlangt."
+                                DataSourceMode.CLOUDFLARE ->
+                                    "Optional – zusätzlich zum Service Token, falls der Server dahinter einen Key verlangt."
+                                else -> "Pro Gerät ein eigener Key (vom Server ausgestellt)."
                             },
                         )
                     },
@@ -662,6 +719,40 @@ private fun Abschnitt(titel: String) {
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp),
+    )
+}
+
+/**
+ * Eingabefeld für eine Hälfte des Cloudflare Service Tokens: verdeckt, mit
+ * Auge zum Aufdecken. Beide Hälften teilen sich den Schalter, weil sie
+ * ohnehin zusammen eingetragen werden.
+ */
+@Composable
+private fun CfFeld(
+    wert: String,
+    titel: String,
+    hinweis: String,
+    sichtbar: Boolean,
+    onSichtbarkeit: () -> Unit,
+    onAenderung: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = wert,
+        onValueChange = onAenderung,
+        label = { Text(titel) },
+        supportingText = { Text(hinweis) },
+        singleLine = true,
+        visualTransformation = if (sichtbar) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+        trailingIcon = {
+            IconButton(onClick = onSichtbarkeit) {
+                Icon(
+                    if (sichtbar) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (sichtbar) "Verbergen" else "Anzeigen",
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
     )
 }
 

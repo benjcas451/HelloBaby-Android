@@ -15,7 +15,8 @@ komplett lokal oder gegen eine eigene Server-API.
 - Tages-, Monats-, Favoriten- und Galerie-Ansichten, zufälliger Tag
 - Eintrag erstellen mit Fotos/Videos (Galerie-Picker, Kamera), Upload-Fortschritt
 - Datenquellen: lokal (SQLite + Medienordner) oder Server-API
-  (API-Key oder mTLS-Client-Zertifikat aus SAF-Ordner)
+  (API-Key, mTLS-Client-Zertifikat aus SAF-Ordner oder Cloudflare
+  Service Token)
 - ZIP-Backup/-Wiederherstellung (Format kompatibel zur Flutter-App)
 - Einmaliger Import lokaler Einträge zur Server-API (mit Duplikatschutz)
 
@@ -101,13 +102,73 @@ alle Antworten sind JSON. Fehler als `{"error": "..."}` mit passendem Status.
 | `POST /api/favorite.php` | Favorit umschalten, Body `{"id":…, "diary":"…"}` |
 | `GET /api/gallery.php?folder=uploads/<ordner>` | Dateien einer Galerie |
 
-Medien liefert der Server **offen, ohne Auth**: `/api/thumb.php?file=…&w=400`
-für Vorschaubilder und Video-Poster, `/api/media.php?file=…` für die Datei
-selbst (`&download=1` erzwingt `Content-Disposition: attachment`).
+Medien holt die App über `/api/thumb.php?file=…&w=400` (Vorschaubilder und
+Video-Poster) und `/api/media.php?file=…` (die Datei selbst; `&download=1`
+erzwingt `Content-Disposition: attachment`).
 
-Authentifizierung der geschützten Endpunkte: `X-API-Key`-Header (beide
+**Authentifizierung** je nach Modus: `X-API-Key`-Header (in allen
 Server-Modi, falls hinterlegt), bei mTLS zusätzlich das Client-Zertifikat im
-TLS-Handshake.
+TLS-Handshake, im Cloudflare-Modus die Header `CF-Access-Client-Id` und
+`CF-Access-Client-Secret` (seit 3.1.0; Prefs-Schlüssel
+`cf_access_client_id`, `cf_access_client_secret`). Beide Token-Hälften gehen
+nur gemeinsam raus — ein halbes Token weist Cloudflare genauso ab wie gar
+keines.
+
+**Medien laufen seit 3.1.0 über dieselben Kopfzeilen.** Vorher luden Coil und
+ExoPlayer über ihre eigenen Clients und damit an `ApiService` vorbei — ohne
+Key, ohne Zertifikat. Solange der Server diese Endpunkte offen auslieferte,
+fiel das nicht auf; hinter Cloudflare Access blockiert der Rand jede dieser
+Anfragen. `MedienClient` stellt jetzt einen OkHttp-Client bereit, der die
+Kopfzeilen per Interceptor bei jeder Anfrage frisch setzt und im mTLS-Modus
+dasselbe Client-Zertifikat verwendet; Coil bekommt ihn über
+`SingletonImageLoader`, ExoPlayer über `OkHttpDataSource.Factory`.
+
+**Access-Abweisung:** Ohne gültiges Token antwortet Cloudflare nicht mit
+einem Fehler, sondern leitet auf die Login-Seite des Teams um. OkHttp folgt
+dem, sodass eine HTML-Seite mit Status 200 ankommt. `ApiService` erkennt das
+am Host der finalen Anfrage (Subdomain von `cloudflareaccess.com`) bzw. an
+einem 403 mit `cf-ray`-Header und meldet es als Token-Problem.
+
+## Offline-Betrieb
+
+Bricht die Verbindung weg, bleibt die App benutzbar. Die Logik sitzt im
+`ApiService` selbst (er ist die einzige Datenquelle) und greift nur in den
+Server-Modi.
+
+**Lesen:** Jede erfolgreiche GET-Antwort landet roh als JSON in
+`filesDir/offline/antworten_<zugang>/`, benannt nach der vollständigen URL.
+Scheitert eine Abfrage an einem Netzwerkfehler, kommt die Antwort von dort.
+Damit funktionieren Tagesansicht, Monatsansicht, Favoriten, Galerie und
+Statistik gleichermassen.
+
+**Schreiben:** Anlegen, Löschen und das Umschalten eines Favoriten gehen in
+eine Warteschlange, wenn sie den Server nachweislich nie erreicht haben
+(`UnknownHostException`, `ConnectException`, `NoRouteToHostException`,
+`SSLException`). Ein `SocketTimeout` oder jede andere `IOException` bleibt
+mehrdeutig — der Server könnte den Eintrag längst haben, ein zweiter Versuch
+legte dann einen zweiten an. Gerade beim Hochladen eines Videos ist das der
+wahrscheinlichere Fall, deshalb bleibt es dort bei der Fehlermeldung.
+
+**Medien wandern mit.** Ein offline erstellter Eintrag behält seine Fotos und
+Videos: Die Dateien werden nach `filesDir/offline/medien_<zugang>/<uuid>/`
+kopiert und von dort hochgeladen. Nach erfolgreichem Upload (oder wenn der
+Eintrag verworfen wird) verschwindet der Ordner; verwaiste Ordner ohne
+zugehörige Aktion räumt das Nachholen auf.
+
+**Ordnung.** Neue Einträge bekommen eine negative lokale Kennung. Eine
+Löschung, die einen noch wartenden Eintrag trifft, entfernt dessen Aktion
+samt Favoriten-Umschaltungen und Medien. Solange etwas ansteht, geht auch ein
+neuer Schreibzugriff hinten dran statt am Stau vorbei.
+
+**Abgearbeitet** wird vor jedem Laden des Startbildschirms und sobald der
+`ConnectivityManager` wieder ein Netz meldet. Das Nachholen benutzt die rohen
+Aufrufe (`ladeHoch`, `loescheDirekt`, `favoritDirekt`) statt der öffentlichen
+Methoden — sonst würde es dieselbe Aktion in einer Schleife erneut vormerken.
+Beim ersten Verbindungsfehler bricht der Durchlauf ab, der Rest bleibt in der
+Reihenfolge stehen. Vom Server inhaltlich zurückgewiesene Aktionen fliegen
+raus und werden einmal gemeldet.
+
+Die Ablage hängt am Zugang (Modus + Server-URL).
 
 Uploads laufen gestreamt (`asRequestBody`), nicht über den Arbeitsspeicher;
 die Timeouts sind auf 5 Minuten gesetzt, weil Videos lange dauern und der

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,7 +40,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -59,6 +63,8 @@ import ch.tschir.hellobaby.Ziel
 import ch.tschir.hellobaby.data.ApiService
 import ch.tschir.hellobaby.data.AppSettings
 import ch.tschir.hellobaby.data.DataSourceMode
+import ch.tschir.hellobaby.data.OfflineStatus
+import ch.tschir.hellobaby.data.Verbindungswache
 import ch.tschir.hellobaby.kDiaries
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -79,14 +85,39 @@ fun HomeScreen(
     var ladeZaehler by remember { mutableIntStateOf(0) }
     var zufallLaeuft by remember { mutableStateOf(false) }
     var letzterZufallstag by remember { mutableStateOf<String?>(null) }
+    val offline by OfflineStatus.zustand.collectAsState()
 
     LaunchedEffect(ladeZaehler, aktivesDiary) {
         laedt = true
         fehler = null
+        // Erst das Liegengebliebene loswerden, dann laden: sonst zeigte die
+        // Statistik einen Serverstand ohne die eigenen Einträge.
+        val verworfen = api.nachholen()
+        if (verworfen.isNotEmpty()) {
+            snackbar.showSnackbar(
+                if (verworfen.size == 1) {
+                    "Ein wartender Eintrag wurde vom Server abgelehnt: ${verworfen.first()}"
+                } else {
+                    "${verworfen.size} wartende Einträge wurden vom Server abgelehnt."
+                },
+            )
+        }
         runCatching { api.getStats(aktivesDiary) }
             .onSuccess { stats = it }
             .onFailure { fehler = it.message ?: it.toString() }
         laedt = false
+    }
+
+    // Sobald wieder ein Netz da ist, neu laden und dabei die Warteschlange
+    // abarbeiten – ohne dass der Nutzer etwas antippen muss.
+    val kontext = LocalContext.current
+    val wache = remember { Verbindungswache(kontext) }
+    DisposableEffect(wache) {
+        wache.starten()
+        onDispose { wache.beenden() }
+    }
+    LaunchedEffect(wache) {
+        wache.wiederVerbunden.collect { ladeZaehler++ }
     }
 
     Scaffold(
@@ -124,6 +155,13 @@ fun HomeScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(20.dp),
             ) {
+                // Offline-Hinweis über allem: der Nutzer soll sofort sehen,
+                // dass er zwar weiterarbeiten kann, der Stand aber noch nicht
+                // beim Server ist.
+                if (offline.grund != null || offline.ausstehend > 0) {
+                    OfflineBanner(grund = offline.grund, ausstehend = offline.ausstehend)
+                    Spacer(Modifier.height(16.dp))
+                }
                 // Tagebuch-Umschalter
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.align(Alignment.CenterHorizontally)) {
                     kDiaries.values.forEachIndexed { index, diary ->
@@ -232,5 +270,51 @@ private fun AktionsButton(
         Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(8.dp))
         Text(label, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+/**
+ * Hinweisleiste über dem Inhalt: Verbindung weg, App weiter benutzbar.
+ *
+ * [grund] null bedeutet „wieder online, aber es wartet noch etwas auf die
+ * Übertragung“.
+ */
+@Composable
+fun OfflineBanner(grund: String?, ausstehend: Int) {
+    val titel = if (grund == null) "Übertragung läuft" else "Offline-Modus – $grund"
+    val untertitel = when (ausstehend) {
+        0 -> "Angezeigt wird der zuletzt geladene Stand."
+        1 -> "Ein Eintrag wartet auf die Übertragung und geht raus, sobald die Verbindung steht."
+        else ->
+            "$ausstehend Einträge warten auf die Übertragung und gehen raus, " +
+                "sobald die Verbindung steht."
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = Hb.hinweisFlaeche()),
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
+            Icon(
+                if (grund == null) Icons.Filled.CloudUpload else Icons.Filled.WifiOff,
+                contentDescription = null,
+                tint = Hb.hinweisText(),
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    titel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Hb.hinweisText(),
+                )
+                Text(
+                    untertitel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Hb.hinweisText(),
+                )
+            }
+        }
     }
 }

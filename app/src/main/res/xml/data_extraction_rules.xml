@@ -16,9 +16,9 @@
    Der media-Ordner bleibt aussen vor: Fotos und Videos sprengen das
    Kontingent des Auto-Backups und wuerden es nicht vergroessern, sondern
    ganz scheitern lassen. Ebenfalls nicht in die Cloud geht
-   hellobaby_settings.xml - darin stehen der API-Key und cert_folder_uri,
-   eine SAF-Ordner-URI, deren persistierte Berechtigung einen
-   Geraetewechsel ohnehin nicht ueberlebt.
+   hellobaby_settings.xml - darin stehen der API-Key, das Cloudflare
+   Service Token und cert_folder_uri, eine SAF-Ordner-URI, deren
+   persistierte Berechtigung einen Geraetewechsel ohnehin nicht ueberlebt.
 
    Geraete-Transfer: laeuft direkt und Ende-zu-Ende-verschluesselt zwischen
    altem und neuem Geraet und kennt das Kontingent des Cloud-Backups nicht.
