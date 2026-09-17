@@ -33,7 +33,7 @@ android {
         // (zuletzt 7); Updates per Sideloading verlangen steigende Codes.
         // Die CI uebergibt -PbuildNumber=100+run_number, lokal gilt der Fallback.
         versionCode = (findProperty("buildNumber") as String?)?.toIntOrNull() ?: 9
-        versionName = "3.1.0"
+        versionName = "3.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
