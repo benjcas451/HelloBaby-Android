@@ -43,6 +43,9 @@ enum class Netzfehler {
             is NoRouteToHostException,
             is PortUnreachableException,
             is SSLException,
+            // Abbruch beim Hochladen der Medien: Der Eintrag selbst war noch
+            // gar nicht unterwegs.
+            is UploadUnterbrochen,
             -> NIE_GESENDET
 
             is SocketTimeoutException,
@@ -57,3 +60,14 @@ enum class Netzfehler {
         }
     }
 }
+
+/**
+ * Die Verbindung riss ab, während die Medien eines neuen Eintrags in Stücken
+ * hochgeladen wurden.
+ *
+ * Anders als bei einem Abbruch mitten in der Anfrage, die den Eintrag anlegt,
+ * ist hier nichts mehrdeutig: Der Eintrag entsteht erst in einem eigenen
+ * Schritt danach. Ein späterer zweiter Versuch kann deshalb kein Duplikat
+ * erzeugen — halbe Uploads räumt der Server von selbst weg.
+ */
+class UploadUnterbrochen(ursache: IOException) : IOException(ursache.message, ursache)
