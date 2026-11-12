@@ -32,8 +32,8 @@ android {
         // Muss ueber dem versionCode der installierten Flutter-App liegen
         // (zuletzt 7); Updates per Sideloading verlangen steigende Codes.
         // Die CI uebergibt -PbuildNumber=100+run_number, lokal gilt der Fallback.
-        versionCode = (findProperty("buildNumber") as String?)?.toIntOrNull() ?: 10
-        versionName = "3.2.0"
+        versionCode = (findProperty("buildNumber") as String?)?.toIntOrNull() ?: 11
+        versionName = "3.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

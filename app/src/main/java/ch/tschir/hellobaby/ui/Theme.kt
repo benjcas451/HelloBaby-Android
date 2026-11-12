@@ -30,6 +30,7 @@ object Hb {
     val aktionZufall = Color(0xFF6FAF53)
     val aktionFavoriten = Color(0xFFDAA520)
     val aktionGalerie = Color(0xFFCB6CA8)
+    val aktionPapierkorb = Color(0xFF7D8590)
 
     // Flächen (aus der Flutter-AppTheme).
     val scaffoldHell = Color(0xFFF5F7F0)

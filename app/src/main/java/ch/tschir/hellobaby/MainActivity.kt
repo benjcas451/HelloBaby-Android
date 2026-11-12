@@ -20,6 +20,7 @@ import ch.tschir.hellobaby.ui.HelloBabyTheme
 import ch.tschir.hellobaby.ui.HomeScreen
 import ch.tschir.hellobaby.ui.ImageFeedScreen
 import ch.tschir.hellobaby.ui.MonthViewScreen
+import ch.tschir.hellobaby.ui.PapierkorbScreen
 import ch.tschir.hellobaby.ui.SettingsScreen
 import ch.tschir.hellobaby.ui.VideoPlayerScreen
 
@@ -34,6 +35,7 @@ sealed interface Ziel {
     data class Gallery(val folder: String) : Ziel
     data class Video(val url: String) : Ziel
     data object Settings : Ziel
+    data object Trash : Ziel
 }
 
 class MainActivity : ComponentActivity() {
@@ -122,6 +124,11 @@ private fun Navigation(settings: AppSettings, api: ApiService) {
 
         Ziel.Settings -> SettingsScreen(
             settings = settings,
+            api = api,
+            onZurueck = ::pop,
+        )
+
+        Ziel.Trash -> PapierkorbScreen(
             api = api,
             onZurueck = ::pop,
         )

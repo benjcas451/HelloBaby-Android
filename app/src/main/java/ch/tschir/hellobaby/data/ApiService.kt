@@ -4,8 +4,10 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ch.tschir.hellobaby.Entry
+import ch.tschir.hellobaby.PapierkorbEintrag
 import ch.tschir.hellobaby.RandomDay
 import ch.tschir.hellobaby.StatsResult
+import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -408,6 +410,63 @@ class ApiService(context: Context) {
         // Versteckte Server-Hilfsordner (.orig, .thumbs) ausblenden.
         return List(files.length()) { files.optString(it) }.filterNot { it.startsWith(".") }
     }
+
+    // ── Papierkorb ──────────────────────────────────────────────────────────
+
+    /**
+     * Ob es einen Papierkorb gibt. Nur der Server hebt Gelöschtes auf; im
+     * lokalen Modus ist ein gelöschter Eintrag sofort weg.
+     */
+    val hatPapierkorb: Boolean get() = !isLocal
+
+    /**
+     * Die gelöschten Einträge beider Tagebücher, zuletzt Gelöschtes zuerst.
+     *
+     * Bewusst ohne Zwischenspeicher und Warteschlange: Der Papierkorb soll
+     * den Stand des Servers zeigen, und Wiederherstellen wie endgültiges
+     * Löschen sind Entscheidungen, die nicht später still nachgeholt werden.
+     */
+    suspend fun getPapierkorb(): List<PapierkorbEintrag> {
+        val antwort = antwort(Request.Builder().url(papierkorbUrl("liste")).auth().get().build())
+        val eintraege = antwort.json()?.optJSONArray("eintraege")
+        if (antwort.code !in 200..299 || eintraege == null) throw papierkorbFehler(antwort)
+        return List(eintraege.length()) { PapierkorbEintrag.fromJson(eintraege.getJSONObject(it)) }
+    }
+
+    /** Holt einen Eintrag samt Medien zurück und liefert seine Kennung. */
+    suspend fun papierkorbWiederherstellen(kennung: String): Int {
+        val antwort = papierkorbAktion("wiederherstellen", kennung)
+        return antwort.json()?.optInt("id") ?: 0
+    }
+
+    /** Entfernt einen Eintrag samt Medien endgültig. */
+    suspend fun papierkorbLoeschen(kennung: String) {
+        papierkorbAktion("loeschen", kennung)
+    }
+
+    private suspend fun papierkorbAktion(aktion: String, kennung: String): Antwort {
+        val body = FormBody.Builder().add("kennung", kennung).build()
+        val antwort = antwort(Request.Builder().url(papierkorbUrl(aktion)).auth().post(body).build())
+        if (antwort.code !in 200..299) throw papierkorbFehler(antwort)
+        return antwort
+    }
+
+    private fun papierkorbUrl(aktion: String) =
+        "$apiBase/entries.php".toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("papierkorb", aktion)
+            .build()
+
+    /**
+     * Ein Server ohne Papierkorb hält die Anfrage für eine gewöhnliche
+     * Abfrage ohne Filter und antwortet mit 400 — ohne das Kennzeichen
+     * `papierkorb_fehler`, das der neue Server jeder Ablehnung mitgibt.
+     */
+    private fun papierkorbFehler(antwort: Antwort): ApiException =
+        if (antwort.code in 200..299 || antwort.json()?.optBoolean("papierkorb_fehler") != true) {
+            ApiException("Der Server kennt den Papierkorb noch nicht.", statusCode = antwort.code)
+        } else {
+            antwort.alsFehler()
+        }
 
     // ── Warteschlange ───────────────────────────────────────────────────────
 

@@ -287,7 +287,17 @@ fun EntryCard(
         AlertDialog(
             onDismissRequest = { loeschDialog = false },
             title = { Text("Eintrag löschen") },
-            text = { Text("Möchtest du diesen Eintrag wirklich löschen?") },
+            text = {
+                // Der Server hebt Gelöschtes auf, die lokale Ablage nicht.
+                Text(
+                    if (api.hatPapierkorb) {
+                        "Der Eintrag wandert samt Medien in den Papierkorb und lässt sich dort " +
+                            "30 Tage lang wiederherstellen."
+                    } else {
+                        "Möchtest du diesen Eintrag wirklich löschen?"
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     loeschDialog = false

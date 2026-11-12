@@ -45,7 +45,7 @@ data/LocalApiImportService.kt  einmaliger Upload lokaler Einträge zum Server
 data/ClientCertificates.kt     PEM (crt/key) -> SSLSocketFactory, inkl. PKCS#1->#8
 data/CertSource.kt             SAF-Ordner mit client.crt/client.key
 data/AppSettings.kt            Prefs + Flutter-Migration
-ui/…                           Compose-UI (Home, Create, Listen, Medien, Settings)
+ui/…                           Compose-UI (Home, Create, Listen, Medien, Papierkorb, Settings)
 ```
 
 `ApiService` ist die einzige Schnittstelle der UI: je nach eingestelltem
@@ -102,7 +102,10 @@ alle Antworten sind JSON. Fehler als `{"error": "..."}` mit passendem Status.
 | `POST /api/entries.php?upload=chunk&id=…&offset=…` | ein Stück als Roh-Body (`application/octet-stream`) |
 | `GET /api/entries.php?upload=status&id=…` | Stand eines Uploads: `received`, `complete`, `bereit` |
 | `POST /api/entries.php` | Eintrag anlegen; Medien als `uploads[]` (Kennungen der fertigen Uploads) |
-| `DELETE /api/entries.php?id=<id>&diary=<id>` | Eintrag löschen |
+| `DELETE /api/entries.php?id=<id>&diary=<id>` | Eintrag löschen – der Server legt ihn samt Medien 30 Tage in den Papierkorb |
+| `GET /api/entries.php?papierkorb=liste` | Papierkorb: gelöschte Einträge beider Tagebücher |
+| `POST /api/entries.php?papierkorb=wiederherstellen` | Eintrag samt Medien zurückholen (`kennung`) |
+| `POST /api/entries.php?papierkorb=loeschen` | Eintrag endgültig entfernen (`kennung`) |
 | `POST /api/favorite.php` | Favorit umschalten, Body `{"id":…, "diary":"…"}` |
 | `GET /api/gallery.php?folder=uploads/<ordner>` | Dateien einer Galerie |
 
@@ -140,6 +143,25 @@ Kennt der Server das Verfahren nicht (älterer Stand), fällt die App auf die
 eine multipart-Anfrage mit `images[]` zurück. Erkennbar ist das an der
 Antwort auf die erste Anmeldung: `400` ohne das Feld `upload_fehler`, das der
 neue Server jeder Ablehnung mitgibt.
+
+### Papierkorb (seit 3.3.0)
+
+Der Server löscht einen Eintrag nicht sofort: Zeile und Medien liegen 30 Tage
+in einem Papierkorb und verschwinden erst danach endgültig. Die App zeigt ihn
+auf dem Startbildschirm (nur in den Server-Modi – die lokale Ablage hebt
+nichts auf) für beide Tagebücher zugleich, mit „Wiederherstellen“ und
+„Endgültig löschen“.
+
+- Wiederhergestellt wird mit der alten Kennung und am alten Medienpfad, sofern
+  beide noch frei sind.
+- Einträge mit `"wiederherstellbar": false` sind Medienordner, zu denen es
+  schon vor dem Papierkorb keinen Eintrag mehr gab; sie lassen sich nur
+  endgültig löschen.
+- Bewusst ohne Zwischenspeicher und Warteschlange: Der Papierkorb zeigt den
+  Stand des Servers, und beide Aktionen werden nicht später still nachgeholt.
+- Ein Server ohne Papierkorb antwortet auf `?papierkorb=liste` mit `400` ohne
+  das Feld `papierkorb_fehler`; die App meldet dann „Der Server kennt den
+  Papierkorb noch nicht.“
 
 **Authentifizierung** je nach Modus: `X-API-Key`-Header (in allen
 Server-Modi, falls hinterlegt), bei mTLS zusätzlich das Client-Zertifikat im
@@ -220,7 +242,8 @@ gesetzt, weil ein Stück über eine langsame Leitung entsprechend lange braucht.
 ./gradlew :app:testDebugUnitTest
 ```
 
-`StueckUploadTest` prüft das Hochladen in Stücken gegen einen nachgestellten
+`PapierkorbTest` prüft, wie die App die Papierkorb-Liste des Servers liest und
+beschriftet. `StueckUploadTest` prüft das Hochladen in Stücken gegen einen nachgestellten
 Server (MockWebServer): Reihenfolge und Inhalt der Stücke, Fortsetzen nach
 verlorener Antwort, Rückfall bei einem Server ohne das Verfahren und die
 Einordnung von Verbindungsabbrüchen für die Warteschlange.
