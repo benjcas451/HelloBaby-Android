@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ch.tschir.hellobaby.PapierkorbEintrag
 import ch.tschir.hellobaby.data.ApiService
+import ch.tschir.hellobaby.data.AppSettings
 import ch.tschir.hellobaby.data.meldung
 import ch.tschir.hellobaby.kDiaries
 import kotlinx.coroutines.launch
@@ -60,6 +61,7 @@ import java.util.Locale
  */
 @Composable
 fun PapierkorbScreen(
+    settings: AppSettings,
     api: ApiService,
     onZurueck: () -> Unit,
 ) {
@@ -72,6 +74,8 @@ fun PapierkorbScreen(
     /** Kennung des Eintrags, an dem gerade etwas läuft: sperrt dessen Knöpfe. */
     var inArbeit by remember { mutableStateOf<String?>(null) }
     var endgueltig by remember { mutableStateOf<PapierkorbEintrag?>(null) }
+    /** Medien ohne Eintrag, für die gerade das Tagebuch gewählt wird. */
+    var tagebuchWahl by remember { mutableStateOf<PapierkorbEintrag?>(null) }
 
     LaunchedEffect(ladeZaehler) {
         laedt = true
@@ -124,8 +128,14 @@ fun PapierkorbScreen(
                             eintrag = eintrag,
                             gesperrt = inArbeit != null,
                             onWiederherstellen = {
-                                ausfuehren(eintrag, "Der Eintrag wurde wiederhergestellt.") {
-                                    api.papierkorbWiederherstellen(eintrag.kennung)
+                                if (eintrag.diary.isEmpty()) {
+                                    // Ohne Eintrag weiß niemand mehr, in welchem
+                                    // Tagebuch die Medien standen.
+                                    tagebuchWahl = eintrag
+                                } else {
+                                    ausfuehren(eintrag, "Der Eintrag wurde wiederhergestellt.") {
+                                        api.papierkorbWiederherstellen(eintrag.kennung)
+                                    }
                                 }
                             },
                             onEndgueltig = { endgueltig = eintrag },
@@ -134,6 +144,40 @@ fun PapierkorbScreen(
                 }
             }
         }
+    }
+
+    tagebuchWahl?.let { eintrag ->
+        AlertDialog(
+            onDismissRequest = { tagebuchWahl = null },
+            title = { Text("Wiederherstellen") },
+            text = {
+                Column {
+                    Text("Zu diesen Medien gibt es keinen Text mehr. In welches Tagebuch soll der Eintrag ohne Text?")
+                    Spacer(Modifier.height(8.dp))
+                    for (diary in kDiaries.values) {
+                        TextButton(onClick = {
+                            tagebuchWahl = null
+                            ausfuehren(eintrag, "Die Medien wurden als Eintrag ohne Text wiederhergestellt.") {
+                                api.papierkorbWiederherstellen(
+                                    eintrag.kennung,
+                                    diary = diary.id,
+                                    vonName = settings.selectedUser,
+                                )
+                            }
+                        }) {
+                            Text(
+                                if (diary.id == eintrag.diaryVorschlag) "${diary.label} (Vorschlag)" else diary.label,
+                                fontWeight = if (diary.id == eintrag.diaryVorschlag) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { tagebuchWahl = null }) { Text("Abbrechen") }
+            },
+        )
     }
 
     endgueltig?.let { eintrag ->
@@ -192,7 +236,7 @@ private fun PapierkorbKarte(
 
             if (diary == null) {
                 Text(
-                    "Zu diesen Dateien gab es keinen Eintrag mehr; sie lassen sich nicht wiederherstellen.",
+                    papierkorbOhneEintrag(eintrag),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             } else {
@@ -261,6 +305,14 @@ internal fun papierkorbTitel(eintrag: PapierkorbEintrag): String {
         ?: return if (datum.isEmpty()) "Medien ohne Eintrag" else "Medien ohne Eintrag vom $datum"
     return "${diary.label}: Eintrag vom $datum"
 }
+
+/** Hinweis auf Karten ohne Eintrag: was Wiederherstellen dort bedeutet. */
+internal fun papierkorbOhneEintrag(eintrag: PapierkorbEintrag): String =
+    if (eintrag.wiederherstellbar) {
+        "Zu diesen Medien gibt es keinen Text mehr. Wiederherstellen legt einen Eintrag ohne Text an."
+    } else {
+        "Der Ordner ist leer; hier gibt es nichts wiederherzustellen."
+    }
 
 internal fun papierkorbMedien(anzahl: Int, bytes: Long): String {
     val groesse = String.format(Locale.GERMAN, "%.1f MB", bytes / 1048576.0)

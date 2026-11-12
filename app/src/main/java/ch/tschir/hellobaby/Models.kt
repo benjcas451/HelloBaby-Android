@@ -102,14 +102,17 @@ data class Entry(
  * Ein gelöschter Eintrag im Papierkorb des Servers.
  *
  * Der Server legt beim Löschen die Zeile samt Medien für einige Tage beiseite
- * (`entries.php?papierkorb=liste`). Zeigt nichts auf einen Eintrag mehr —
- * Medienordner, die schon vor dem Papierkorb verwaist waren —, ist [diary]
- * leer und der Eintrag nicht [wiederherstellbar].
+ * (`entries.php?papierkorb=liste`). Bei Medien ohne Eintrag — Ordnern, deren
+ * Text schon verloren war, bevor es den Papierkorb gab — ist [diary] leer.
+ * Sie lassen sich als Eintrag ohne Text wiederherstellen; [diaryVorschlag]
+ * nennt das Tagebuch, das zu ihrem Tag am ehesten passt.
  */
 data class PapierkorbEintrag(
     /** Kennung im Papierkorb; damit wird wiederhergestellt oder gelöscht. */
     val kennung: String,
     val diary: String,
+    /** Tagebuch, in das der Server ohne weitere Angabe wiederherstellt. */
+    val diaryVorschlag: String,
     /** Zeitpunkt des Löschens, `yyyy-MM-dd HH:mm:ss` (Serverzeit). */
     val geloescht: String,
     /** Tag, an dem der Server den Eintrag endgültig entfernt. */
@@ -130,6 +133,8 @@ data class PapierkorbEintrag(
             return PapierkorbEintrag(
                 kennung = json.optString("kennung"),
                 diary = diary,
+                // Ältere Server nennen keinen Vorschlag.
+                diaryVorschlag = if (json.isNull("diary_vorschlag")) diary else json.optString("diary_vorschlag", diary),
                 geloescht = json.optString("geloescht"),
                 verfaellt = json.optString("verfaellt"),
                 tageUebrig = json.optInt("tage_uebrig"),

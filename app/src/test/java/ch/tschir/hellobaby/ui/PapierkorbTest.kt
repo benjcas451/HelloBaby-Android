@@ -14,7 +14,7 @@ class PapierkorbTest {
     private val eintrag = PapierkorbEintrag.fromJson(
         JSONObject(
             """
-            {"kennung":"20261112_135210_edata_42","diary":"entwicklung",
+            {"kennung":"20261112_135210_edata_42","diary":"entwicklung","diary_vorschlag":"entwicklung",
              "geloescht":"2026-11-12 13:52:10","verfaellt":"2026-12-12","tage_uebrig":30,
              "wiederherstellbar":true,"medien":2,"bytes":21076582,
              "eintrag":{"id":42,"kalender_datum":"2026-11-03","bilder":"uploads/20261103_101500_abc",
@@ -24,13 +24,14 @@ class PapierkorbTest {
         ),
     )
 
-    /** Medienordner, zu dem es schon vor dem Papierkorb keinen Eintrag mehr gab. */
+    /** Medienordner, dessen Text schon verloren war, bevor es den Papierkorb gab. */
     private val ohneEintrag = PapierkorbEintrag.fromJson(
         JSONObject(
             """
             {"kennung":"20261112_134431_altlast_20250727_134229_68862cc5dc2a1","diary":null,
+             "diary_vorschlag":"schwangerschaft",
              "geloescht":"2026-11-12 13:44:31","verfaellt":"2026-12-12","tage_uebrig":1,
-             "wiederherstellbar":false,"medien":1,"bytes":1677721,
+             "wiederherstellbar":true,"medien":1,"bytes":1677721,
              "eintrag":{"id":0,"kalender_datum":"2025-07-27","bilder":"uploads/20250727_134229_68862cc5dc2a1",
                         "von_name":"","favorit":0,"created_at":""}}
             """,
@@ -52,10 +53,29 @@ class PapierkorbTest {
     }
 
     @Test
-    fun `liest Medien ohne Eintrag als nicht wiederherstellbar`() {
+    fun `liest Medien ohne Eintrag samt Vorschlag fuer das Tagebuch`() {
         // Ein JSON-null darf nicht als Text "null" ankommen.
         assertEquals("", ohneEintrag.diary)
-        assertFalse(ohneEintrag.wiederherstellbar)
+        assertEquals("schwangerschaft", ohneEintrag.diaryVorschlag)
+        assertTrue(ohneEintrag.wiederherstellbar)
+        assertEquals("entwicklung", eintrag.diaryVorschlag)
+        assertEquals(
+            "Zu diesen Medien gibt es keinen Text mehr. Wiederherstellen legt einen Eintrag ohne Text an.",
+            papierkorbOhneEintrag(ohneEintrag),
+        )
+        assertEquals(
+            "Der Ordner ist leer; hier gibt es nichts wiederherzustellen.",
+            papierkorbOhneEintrag(ohneEintrag.copy(wiederherstellbar = false, medien = 0)),
+        )
+    }
+
+    @Test
+    fun `kommt mit einem Server ohne Vorschlag zurecht`() {
+        val alt = PapierkorbEintrag.fromJson(
+            JSONObject("""{"kennung":"k","diary":"entwicklung","wiederherstellbar":true,"eintrag":{"id":1}}"""),
+        )
+        assertEquals("entwicklung", alt.diaryVorschlag)
+        assertFalse(alt.eintrag.diary.isEmpty())
     }
 
     @Test

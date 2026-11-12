@@ -433,9 +433,20 @@ class ApiService(context: Context) {
         return List(eintraege.length()) { PapierkorbEintrag.fromJson(eintraege.getJSONObject(it)) }
     }
 
-    /** Holt einen Eintrag samt Medien zurück und liefert seine Kennung. */
-    suspend fun papierkorbWiederherstellen(kennung: String): Int {
-        val antwort = papierkorbAktion("wiederherstellen", kennung)
+    /**
+     * Holt einen Eintrag samt Medien zurück und liefert seine Kennung.
+     *
+     * [diary] und [vonName] zählen nur bei Medien ohne Eintrag: Sie werden zu
+     * einem Eintrag ohne Text in diesem Tagebuch und mit diesem Ersteller.
+     */
+    suspend fun papierkorbWiederherstellen(kennung: String, diary: String? = null, vonName: String = ""): Int {
+        val antwort = papierkorbAktion(
+            "wiederherstellen", kennung,
+            buildMap {
+                if (diary != null) put("diary", diary)
+                if (vonName.isNotEmpty()) put("von_name", vonName)
+            },
+        )
         return antwort.json()?.optInt("id") ?: 0
     }
 
@@ -444,8 +455,14 @@ class ApiService(context: Context) {
         papierkorbAktion("loeschen", kennung)
     }
 
-    private suspend fun papierkorbAktion(aktion: String, kennung: String): Antwort {
-        val body = FormBody.Builder().add("kennung", kennung).build()
+    private suspend fun papierkorbAktion(
+        aktion: String,
+        kennung: String,
+        felder: Map<String, String> = emptyMap(),
+    ): Antwort {
+        val body = FormBody.Builder().add("kennung", kennung)
+            .apply { felder.forEach { (name, wert) -> add(name, wert) } }
+            .build()
         val antwort = antwort(Request.Builder().url(papierkorbUrl(aktion)).auth().post(body).build())
         if (antwort.code !in 200..299) throw papierkorbFehler(antwort)
         return antwort
