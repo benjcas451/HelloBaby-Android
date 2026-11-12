@@ -98,6 +98,50 @@ data class Entry(
     }
 }
 
+/**
+ * Ein gelöschter Eintrag im Papierkorb des Servers.
+ *
+ * Der Server legt beim Löschen die Zeile samt Medien für einige Tage beiseite
+ * (`entries.php?papierkorb=liste`). Zeigt nichts auf einen Eintrag mehr —
+ * Medienordner, die schon vor dem Papierkorb verwaist waren —, ist [diary]
+ * leer und der Eintrag nicht [wiederherstellbar].
+ */
+data class PapierkorbEintrag(
+    /** Kennung im Papierkorb; damit wird wiederhergestellt oder gelöscht. */
+    val kennung: String,
+    val diary: String,
+    /** Zeitpunkt des Löschens, `yyyy-MM-dd HH:mm:ss` (Serverzeit). */
+    val geloescht: String,
+    /** Tag, an dem der Server den Eintrag endgültig entfernt. */
+    val verfaellt: String,
+    val tageUebrig: Int,
+    val wiederherstellbar: Boolean,
+    /** Anzahl der Fotos und Videos. */
+    val medien: Int,
+    /** Belegter Speicher samt Originalen und Vorschaubildern. */
+    val bytes: Long,
+    val eintrag: Entry,
+) {
+    companion object {
+        fun fromJson(json: JSONObject): PapierkorbEintrag {
+            // optString liefert für ein JSON-null den Text "null".
+            val diary = if (json.isNull("diary")) "" else json.optString("diary")
+            val eintrag = Entry.fromJson(json.optJSONObject("eintrag") ?: JSONObject())
+            return PapierkorbEintrag(
+                kennung = json.optString("kennung"),
+                diary = diary,
+                geloescht = json.optString("geloescht"),
+                verfaellt = json.optString("verfaellt"),
+                tageUebrig = json.optInt("tage_uebrig"),
+                wiederherstellbar = json.optBoolean("wiederherstellbar"),
+                medien = json.optInt("medien"),
+                bytes = json.optLong("bytes"),
+                eintrag = eintrag.copy(diary = diary),
+            )
+        }
+    }
+}
+
 /** Erster/letzter Eintrag und ein zufälliges Datum (`stats.php`). */
 data class StatsResult(
     val first: String,

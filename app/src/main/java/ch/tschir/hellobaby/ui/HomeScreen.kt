@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -232,6 +233,12 @@ fun HomeScreen(
                 }
                 AktionsButton(Icons.Filled.PhotoLibrary, "Galerie", Hb.aktionGalerie) {
                     onNavigate(Ziel.ImageFeed)
+                }
+                // Nur der Server hebt Gelöschtes auf.
+                if (api.hatPapierkorb) {
+                    AktionsButton(Icons.Filled.DeleteOutline, "Papierkorb", Hb.aktionPapierkorb) {
+                        onNavigate(Ziel.Trash)
+                    }
                 }
             }
         }
