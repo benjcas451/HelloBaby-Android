@@ -16,7 +16,7 @@ class PapierkorbTest {
             """
             {"kennung":"20261112_135210_edata_42","diary":"entwicklung","diary_vorschlag":"entwicklung",
              "geloescht":"2026-11-12 13:52:10","verfaellt":"2026-12-12","tage_uebrig":30,
-             "wiederherstellbar":true,"medien":2,"bytes":21076582,
+             "wiederherstellbar":true,"medien":2,"dateien":["6af5b2250bc04.jpg","6af5b2250bc72.mp4"],"bytes":21076582,
              "eintrag":{"id":42,"kalender_datum":"2026-11-03","bilder":"uploads/20261103_101500_abc",
                         "von_name":"Celine","favorit":1,"created_at":"2026-11-03 10:15:00",
                         "gewicht":"5,4","groesse":"","kopfumfang":"0","notiz":"Erstes Lächeln","sonstiges":""}}
@@ -44,6 +44,9 @@ class PapierkorbTest {
         assertEquals("entwicklung", eintrag.diary)
         assertTrue(eintrag.wiederherstellbar)
         assertEquals(2, eintrag.medien)
+        assertEquals(listOf("6af5b2250bc04.jpg", "6af5b2250bc72.mp4"), eintrag.dateien)
+        // Ein Server ohne Vorschaubilder nennt keine Dateien.
+        assertTrue(ohneEintrag.dateien.isEmpty())
         assertEquals(21076582L, eintrag.bytes)
         assertEquals(42, eintrag.eintrag.id)
         assertEquals("entwicklung", eintrag.eintrag.diary)

@@ -434,6 +434,20 @@ class ApiService(context: Context) {
     }
 
     /**
+     * Adresse des Vorschaubilds einer Datei im Papierkorb (bei Videos ein
+     * Standbild) — damit man sieht, was man wiederherstellt oder endgültig
+     * löscht. Der Server gibt aus dem Papierkorb nur diese verkleinerten
+     * Bilder heraus, nicht die Dateien selbst.
+     */
+    fun papierkorbVorschauUrl(kennung: String, datei: String, width: Int = 400): String =
+        "${settings.serverBase}/api/entries.php".toHttpUrlOrNull()?.newBuilder()
+            ?.addQueryParameter("papierkorb", "vorschau")
+            ?.addQueryParameter("kennung", kennung)
+            ?.addQueryParameter("datei", datei)
+            ?.addQueryParameter("w", width.toString())
+            ?.build()?.toString().orEmpty()
+
+    /**
      * Holt einen Eintrag samt Medien zurück und liefert seine Kennung.
      *
      * [diary] und [vonName] zählen nur bei Medien ohne Eintrag: Sie werden zu

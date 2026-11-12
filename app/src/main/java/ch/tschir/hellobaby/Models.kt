@@ -121,6 +121,8 @@ data class PapierkorbEintrag(
     val wiederherstellbar: Boolean,
     /** Anzahl der Fotos und Videos. */
     val medien: Int,
+    /** Dateinamen der Fotos und Videos, für die Vorschaubilder. */
+    val dateien: List<String>,
     /** Belegter Speicher samt Originalen und Vorschaubildern. */
     val bytes: Long,
     val eintrag: Entry,
@@ -140,6 +142,9 @@ data class PapierkorbEintrag(
                 tageUebrig = json.optInt("tage_uebrig"),
                 wiederherstellbar = json.optBoolean("wiederherstellbar"),
                 medien = json.optInt("medien"),
+                dateien = json.optJSONArray("dateien")?.let { array ->
+                    List(array.length()) { array.optString(it) }
+                } ?: emptyList(),
                 bytes = json.optLong("bytes"),
                 eintrag = eintrag.copy(diary = diary),
             )
