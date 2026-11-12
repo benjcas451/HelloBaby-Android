@@ -47,6 +47,12 @@ class ApiService(context: Context) {
     private var client: OkHttpClient? = null
     private var clientMode: DataSourceMode? = null
 
+    /** Lädt Medien in Stücken hoch, bevor der Eintrag angelegt wird. */
+    private val stueckUpload = StueckUpload(
+        endpunkt = { "$apiBase/entries.php" },
+        sende = { antwort(it.auth().build()) },
+    )
+
     private val isLocal get() = settings.mode == DataSourceMode.LOCAL
 
     /**
@@ -213,6 +219,11 @@ class ApiService(context: Context) {
     /**
      * Lädt einen Eintrag samt Medien hoch. Ohne Offline-Logik — so benutzt ihn
      * auch das Nachholen, das sonst in einer Schleife wieder vormerken würde.
+     *
+     * Medien gehen seit 3.2.0 in Stücken voraus ([StueckUpload]); der Eintrag
+     * selbst ist danach eine kleine Anfrage, die nur noch die Kennungen der
+     * fertigen Uploads nennt. Kennt der Server das Verfahren noch nicht,
+     * bleibt es bei der einen großen Anfrage von früher.
      */
     private suspend fun ladeHoch(
         kalenderDatum: String,
@@ -222,28 +233,40 @@ class ApiService(context: Context) {
         diary: String,
         onSendProgress: ((sent: Long, total: Long) -> Unit)? = null,
     ): Int {
+        val uploads = if (images.isEmpty()) emptyList() else stueckUpload.ladeHoch(images, onSendProgress)
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("diary", diary)
             .addFormDataPart("kalender_datum", kalenderDatum)
             .addFormDataPart("von_name", vonName)
             .apply {
                 fields.forEach { (key, value) -> addFormDataPart(key, value) }
-                images.forEach { file ->
-                    addFormDataPart(
-                        "images[]", file.name,
-                        file.asRequestBody("application/octet-stream".toMediaType()),
-                    )
+                if (uploads != null) {
+                    uploads.forEach { addFormDataPart("uploads[]", it) }
+                } else {
+                    images.forEach { file ->
+                        addFormDataPart(
+                            "images[]", file.name,
+                            file.asRequestBody("application/octet-stream".toMediaType()),
+                        )
+                    }
                 }
             }
             .build()
-        val body: RequestBody = if (onSendProgress != null && images.isNotEmpty()) {
+        val body: RequestBody = if (uploads == null && onSendProgress != null) {
             FortschrittBody(multipart, onSendProgress)
         } else {
             multipart
         }
-        val data = ausfuehren(
-            Request.Builder().url("$apiBase/entries.php").auth().post(body).build(),
-        ) as? JSONObject ?: throw ApiException("Unerwartete Antwort beim Erstellen.")
+        val anfrage = Request.Builder().url("$apiBase/entries.php").auth().post(body).build()
+        // Mit Uploads ist die Anfrage wiederholbar: Der Server merkt sich, in
+        // welchen Eintrag sie eingegangen sind, und liefert bei einem zweiten
+        // Versuch denselben zurück statt einen weiteren anzulegen.
+        val antwort = if (uploads.isNullOrEmpty()) {
+            ausfuehren(anfrage)
+        } else {
+            mitWiederholung { ausfuehren(anfrage) }
+        }
+        val data = antwort as? JSONObject ?: throw ApiException("Unerwartete Antwort beim Erstellen.")
         OfflineStatus.melde(null)
         return data.optInt("id")
     }
@@ -501,19 +524,23 @@ class ApiService(context: Context) {
     private suspend fun ausfuehren(request: Request): Any? = alsJson(ausfuehrenRoh(request))
 
     /** Wie [ausfuehren], liefert aber den Rohtext – den braucht die Ablage. */
-    private suspend fun ausfuehrenRoh(request: Request): String = withContext(Dispatchers.IO) {
+    private suspend fun ausfuehrenRoh(request: Request): String {
+        val antwort = antwort(request)
+        if (antwort.code !in 200..299) throw antwort.alsFehler()
+        return antwort.text
+    }
+
+    /**
+     * Führt eine Anfrage aus und liefert Status und Rohtext, ohne eine
+     * Fehlerantwort selbst zu bewerten — die Upload-Schritte lesen auch aus
+     * einem 409 noch den Stand heraus.
+     */
+    private suspend fun antwort(request: Request): Antwort = withContext(Dispatchers.IO) {
         httpClient().newCall(request).execute().use { response ->
             CloudflareServiceToken.abweisung(response)?.let {
                 throw ApiException(it, statusCode = response.code)
             }
-            val text = response.body?.string().orEmpty()
-            if (response.code !in 200..299) {
-                val meldung = runCatching { JSONObject(text).optString("error") }
-                    .getOrNull()?.takeIf { it.isNotEmpty() }
-                    ?: "Anfrage fehlgeschlagen (${response.code})"
-                throw ApiException(meldung, statusCode = response.code)
-            }
-            text
+            Antwort(response.code, response.body?.string().orEmpty())
         }
     }
 

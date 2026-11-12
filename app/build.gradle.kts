@@ -112,6 +112,9 @@ dependencies {
     implementation(libs.androidx.documentfile)
 
     testImplementation(libs.junit)
+    // StueckUpload gegen einen nachgestellten Server pruefen.
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.json)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }
