@@ -129,6 +129,7 @@ private fun Navigation(settings: AppSettings, api: ApiService) {
         )
 
         Ziel.Trash -> PapierkorbScreen(
+            settings = settings,
             api = api,
             onZurueck = ::pop,
         )

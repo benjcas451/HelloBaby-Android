@@ -1,7 +1,10 @@
 package ch.tschir.hellobaby.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,9 +16,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
@@ -39,12 +45,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ch.tschir.hellobaby.PapierkorbEintrag
 import ch.tschir.hellobaby.data.ApiService
+import ch.tschir.hellobaby.data.AppSettings
 import ch.tschir.hellobaby.data.meldung
+import ch.tschir.hellobaby.isVideoFile
+import coil3.compose.AsyncImage
 import ch.tschir.hellobaby.kDiaries
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -60,6 +73,7 @@ import java.util.Locale
  */
 @Composable
 fun PapierkorbScreen(
+    settings: AppSettings,
     api: ApiService,
     onZurueck: () -> Unit,
 ) {
@@ -72,6 +86,8 @@ fun PapierkorbScreen(
     /** Kennung des Eintrags, an dem gerade etwas läuft: sperrt dessen Knöpfe. */
     var inArbeit by remember { mutableStateOf<String?>(null) }
     var endgueltig by remember { mutableStateOf<PapierkorbEintrag?>(null) }
+    /** Medien ohne Eintrag, für die gerade das Tagebuch gewählt wird. */
+    var tagebuchWahl by remember { mutableStateOf<PapierkorbEintrag?>(null) }
 
     LaunchedEffect(ladeZaehler) {
         laedt = true
@@ -122,10 +138,17 @@ fun PapierkorbScreen(
                     items(eintraege, key = { it.kennung }) { eintrag ->
                         PapierkorbKarte(
                             eintrag = eintrag,
+                            api = api,
                             gesperrt = inArbeit != null,
                             onWiederherstellen = {
-                                ausfuehren(eintrag, "Der Eintrag wurde wiederhergestellt.") {
-                                    api.papierkorbWiederherstellen(eintrag.kennung)
+                                if (eintrag.diary.isEmpty()) {
+                                    // Ohne Eintrag weiß niemand mehr, in welchem
+                                    // Tagebuch die Medien standen.
+                                    tagebuchWahl = eintrag
+                                } else {
+                                    ausfuehren(eintrag, "Der Eintrag wurde wiederhergestellt.") {
+                                        api.papierkorbWiederherstellen(eintrag.kennung)
+                                    }
                                 }
                             },
                             onEndgueltig = { endgueltig = eintrag },
@@ -134,6 +157,40 @@ fun PapierkorbScreen(
                 }
             }
         }
+    }
+
+    tagebuchWahl?.let { eintrag ->
+        AlertDialog(
+            onDismissRequest = { tagebuchWahl = null },
+            title = { Text("Wiederherstellen") },
+            text = {
+                Column {
+                    Text("Zu diesen Medien gibt es keinen Text mehr. In welches Tagebuch soll der Eintrag ohne Text?")
+                    Spacer(Modifier.height(8.dp))
+                    for (diary in kDiaries.values) {
+                        TextButton(onClick = {
+                            tagebuchWahl = null
+                            ausfuehren(eintrag, "Die Medien wurden als Eintrag ohne Text wiederhergestellt.") {
+                                api.papierkorbWiederherstellen(
+                                    eintrag.kennung,
+                                    diary = diary.id,
+                                    vonName = settings.selectedUser,
+                                )
+                            }
+                        }) {
+                            Text(
+                                if (diary.id == eintrag.diaryVorschlag) "${diary.label} (Vorschlag)" else diary.label,
+                                fontWeight = if (diary.id == eintrag.diaryVorschlag) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { tagebuchWahl = null }) { Text("Abbrechen") }
+            },
+        )
     }
 
     endgueltig?.let { eintrag ->
@@ -161,6 +218,7 @@ fun PapierkorbScreen(
 @Composable
 private fun PapierkorbKarte(
     eintrag: PapierkorbEintrag,
+    api: ApiService,
     gesperrt: Boolean,
     onWiederherstellen: () -> Unit,
     onEndgueltig: () -> Unit,
@@ -192,7 +250,7 @@ private fun PapierkorbKarte(
 
             if (diary == null) {
                 Text(
-                    "Zu diesen Dateien gab es keinen Eintrag mehr; sie lassen sich nicht wiederherstellen.",
+                    papierkorbOhneEintrag(eintrag),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             } else {
@@ -212,6 +270,41 @@ private fun PapierkorbKarte(
                     papierkorbMedien(eintrag.medien, eintrag.bytes),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+            }
+            // Vorschaubilder: zeigen, was wiederhergestellt oder gelöscht wird.
+            if (eintrag.dateien.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for (datei in eintrag.dateien) {
+                        Box(
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            AsyncImage(
+                                model = api.papierkorbVorschauUrl(eintrag.kennung, datei),
+                                contentDescription = if (isVideoFile(datei)) "Standbild des Videos" else "Foto",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            if (isVideoFile(datei)) {
+                                Icon(
+                                    Icons.Filled.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .background(Color(0x8A000000), CircleShape)
+                                        .padding(4.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(6.dp))
             Text(
@@ -261,6 +354,14 @@ internal fun papierkorbTitel(eintrag: PapierkorbEintrag): String {
         ?: return if (datum.isEmpty()) "Medien ohne Eintrag" else "Medien ohne Eintrag vom $datum"
     return "${diary.label}: Eintrag vom $datum"
 }
+
+/** Hinweis auf Karten ohne Eintrag: was Wiederherstellen dort bedeutet. */
+internal fun papierkorbOhneEintrag(eintrag: PapierkorbEintrag): String =
+    if (eintrag.wiederherstellbar) {
+        "Zu diesen Medien gibt es keinen Text mehr. Wiederherstellen legt einen Eintrag ohne Text an."
+    } else {
+        "Der Ordner ist leer; hier gibt es nichts wiederherzustellen."
+    }
 
 internal fun papierkorbMedien(anzahl: Int, bytes: Long): String {
     val groesse = String.format(Locale.GERMAN, "%.1f MB", bytes / 1048576.0)
