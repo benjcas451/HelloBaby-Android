@@ -206,8 +206,8 @@ private fun StartInhalt(
             Text(
                 buildList {
                     diary?.title?.let(::add)
-                    s?.first?.takeIf { it.isNotEmpty() }?.let { add("seit ${anzeigeDatum(it)}") }
-                    s?.last?.takeIf { it.isNotEmpty() }?.let { add("zuletzt ${anzeigeDatum(it)}") }
+                    s?.first?.let(::tagLesen)?.let { add("seit ${anzeigeDatum(it.toString())}") }
+                    s?.last?.let(::tagLesen)?.let { add("zuletzt ${anzeigeDatum(it.toString())}") }
                 }.joinToString(" · "),
                 style = MhTypo.small,
                 color = Mh.farben.textSecondary,
@@ -294,7 +294,8 @@ private fun StartInhalt(
  * lokale Ablage und Offline-Zwischenstand gleich behandelt werden.
  */
 private suspend fun letzteEintraege(api: ApiService, diary: String, letzter: String, anzahl: Int): List<Entry> {
-    val start = runCatching { LocalDate.parse(letzter) }.getOrNull() ?: return emptyList()
+    // stats.php liefert „15.11.2026“, die lokale Ablage „2026-11-15“.
+    val start = tagLesen(letzter) ?: return emptyList()
     val sammlung = mutableListOf<Entry>()
     var monat = start.withDayOfMonth(1)
     repeat(2) {
