@@ -308,29 +308,35 @@ fun MhSegmente(
             .clip(RoundedCornerShape(Mh.radiusMd))
             .background(f.surfaceSubtle)
             .border(1.dp, f.border, RoundedCornerShape(Mh.radiusMd))
-            .padding(3.dp)
+            .padding(horizontal = 2.dp)
             .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         optionen.forEachIndexed { i, text ->
             val aktiv = i == gewaehlt
+            // Tippfläche = volle Höhe (48 dp); die sichtbare Form sitzt 3 dp
+            // eingerückt darin, 2 dp Abstand zum Nachbarn wie im Web.
             Box(
                 Modifier
                     .weight(1f)
-                    .heightIn(min = 40.dp)
-                    .then(if (aktiv && !f.dunkel) Modifier.shadow(1.dp, RoundedCornerShape(7.dp)) else Modifier)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(if (aktiv) f.segmentOn else Color.Transparent)
+                    .heightIn(min = Mh.touch)
                     .selectable(selected = aktiv, role = Role.Tab, onClick = { onWahl(i) })
-                    .padding(horizontal = Mh.abstand3),
+                    .padding(horizontal = 1.dp, vertical = 3.dp),
                 contentAlignment = Alignment.Center,
             ) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .then(if (aktiv && !f.dunkel) Modifier.shadow(1.dp, RoundedCornerShape(7.dp)) else Modifier)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(if (aktiv) f.segmentOn else Color.Transparent),
+                )
                 Text(
                     text,
                     style = MhTypo.label,
                     color = if (aktiv) f.textStrong else f.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = Mh.abstand3),
                 )
             }
         }
