@@ -1,42 +1,28 @@
 package ch.tschir.hellobaby.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestoreFromTrash
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,17 +34,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ch.tschir.hellobaby.PapierkorbEintrag
+import ch.tschir.hellobaby.R
 import ch.tschir.hellobaby.data.ApiService
 import ch.tschir.hellobaby.data.AppSettings
 import ch.tschir.hellobaby.data.meldung
 import ch.tschir.hellobaby.isVideoFile
-import coil3.compose.AsyncImage
 import ch.tschir.hellobaby.kDiaries
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -109,32 +94,33 @@ fun PapierkorbScreen(
                     ladeZaehler++
                     snackbar.showSnackbar(erfolg)
                 }
-                .onFailure { snackbar.showSnackbar("Fehler: ${it.meldung()}") }
+                .onFailure { snackbar.showSnackbar("Das hat nicht geklappt: ${it.meldung()}") }
             inArbeit = null
         }
     }
 
     Scaffold(
         topBar = {
-            HbTopBar(titel = "Papierkorb", onZurueck = onZurueck) {
-                IconButton(onClick = { ladeZaehler++ }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Neu laden")
-                }
-            }
+            MhKopf(
+                titel = "Papierkorb",
+                onZurueck = onZurueck,
+                untertitel = "Gelöschte Einträge bleiben 30 Tage hier.",
+                symbole = { MhSymbolButton(R.drawable.ic_mh_refresh, "Neu laden", { ladeZaehler++ }) },
+            )
         },
         snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Mh.farben.bg,
     ) { innen ->
-        Column(modifier = Modifier.padding(innen).fillMaxSize()) {
+        Box(Modifier.padding(innen).fillMaxSize()) {
             when {
                 laedt && eintraege.isEmpty() -> LadeAnsicht()
-                fehler != null -> FehlerAnsicht("Fehler: $fehler") { ladeZaehler++ }
-                eintraege.isEmpty() -> LeerAnsicht(
-                    Icons.Filled.DeleteOutline,
-                    "Der Papierkorb ist leer",
-                    "Gelöschte Einträge bleiben 30 Tage hier liegen und verschwinden danach endgültig.",
-                )
-                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                fehler != null -> FehlerAnsicht("Der Papierkorb konnte nicht geladen werden. $fehler") { ladeZaehler++ }
+                eintraege.isEmpty() -> LeerAnsicht("Der Papierkorb ist leer")
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = Mh.rand, end = Mh.rand, top = Mh.abstand2, bottom = Mh.abstand8),
+                    verticalArrangement = Arrangement.spacedBy(Mh.abstand3),
+                ) {
                     items(eintraege, key = { it.kennung }) { eintrag ->
                         PapierkorbKarte(
                             eintrag = eintrag,
@@ -146,7 +132,7 @@ fun PapierkorbScreen(
                                     // Tagebuch die Medien standen.
                                     tagebuchWahl = eintrag
                                 } else {
-                                    ausfuehren(eintrag, "Der Eintrag wurde wiederhergestellt.") {
+                                    ausfuehren(eintrag, "Eintrag wiederhergestellt") {
                                         api.papierkorbWiederherstellen(eintrag.kennung)
                                     }
                                 }
@@ -162,59 +148,62 @@ fun PapierkorbScreen(
     tagebuchWahl?.let { eintrag ->
         AlertDialog(
             onDismissRequest = { tagebuchWahl = null },
-            title = { Text("Wiederherstellen") },
+            title = { Text("Wiederherstellen", style = MhTypo.h2) },
             text = {
                 Column {
-                    Text("Zu diesen Medien gibt es keinen Text mehr. In welches Tagebuch soll der Eintrag ohne Text?")
-                    Spacer(Modifier.height(8.dp))
-                    for (diary in kDiaries.values) {
-                        TextButton(onClick = {
-                            tagebuchWahl = null
-                            ausfuehren(eintrag, "Die Medien wurden als Eintrag ohne Text wiederhergestellt.") {
-                                api.papierkorbWiederherstellen(
-                                    eintrag.kennung,
-                                    diary = diary.id,
-                                    vonName = settings.selectedUser,
-                                )
-                            }
-                        }) {
-                            Text(
-                                if (diary.id == eintrag.diaryVorschlag) "${diary.label} (Vorschlag)" else diary.label,
-                                fontWeight = if (diary.id == eintrag.diaryVorschlag) FontWeight.Bold else FontWeight.Normal,
-                            )
-                        }
+                    Text(
+                        "Zu diesen Medien gibt es keinen Text mehr. In welches Tagebuch soll der Eintrag ohne Text?",
+                        style = MhTypo.body,
+                    )
+                    Spacer(Modifier.height(Mh.abstand2))
+                    MhListe(kDiaries.values.toList()) { diary ->
+                        MhListenZeile(
+                            diary.label,
+                            meta = if (diary.id == eintrag.diaryVorschlag) "Vorschlag" else null,
+                            pfeil = true,
+                            onClick = {
+                                tagebuchWahl = null
+                                ausfuehren(eintrag, "Medien als Eintrag ohne Text wiederhergestellt") {
+                                    api.papierkorbWiederherstellen(
+                                        eintrag.kennung,
+                                        diary = diary.id,
+                                        vonName = settings.selectedUser,
+                                    )
+                                }
+                            },
+                        )
                     }
                 }
             },
             confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { tagebuchWahl = null }) { Text("Abbrechen") }
-            },
+            dismissButton = { MhTextButton("Abbrechen", { tagebuchWahl = null }) },
         )
     }
 
     endgueltig?.let { eintrag ->
         AlertDialog(
             onDismissRequest = { endgueltig = null },
-            title = { Text("Endgültig löschen") },
+            title = { Text("Endgültig löschen", style = MhTypo.h2) },
             text = {
-                Text("Diesen Eintrag samt Medien endgültig löschen? Das lässt sich nicht rückgängig machen.")
+                Text(
+                    "Diesen Eintrag samt Medien endgültig löschen? Das lässt sich nicht rückgängig machen.",
+                    style = MhTypo.body,
+                )
             },
             confirmButton = {
-                TextButton(onClick = {
+                MhLoeschenButton("Endgültig löschen", {
                     endgueltig = null
-                    ausfuehren(eintrag, "Der Eintrag wurde endgültig gelöscht.") {
+                    ausfuehren(eintrag, "Eintrag endgültig gelöscht") {
                         api.papierkorbLoeschen(eintrag.kennung)
                     }
-                }) { Text("Endgültig löschen", color = MaterialTheme.colorScheme.error) }
+                })
             },
-            dismissButton = {
-                TextButton(onClick = { endgueltig = null }) { Text("Abbrechen") }
-            },
+            dismissButton = { MhTextButton("Abbrechen", { endgueltig = null }) },
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PapierkorbKarte(
     eintrag: PapierkorbEintrag,
@@ -223,123 +212,70 @@ private fun PapierkorbKarte(
     onWiederherstellen: () -> Unit,
     onEndgueltig: () -> Unit,
 ) {
+    val f = Mh.farben
     val diary = kDiaries[eintrag.diary]
     val zeile = eintrag.eintrag
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                papierkorbTitel(eintrag),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (zeile.vonName.isNotEmpty()) {
-                Text(
-                    "von ${zeile.vonName}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    MhKarte {
+        Text(papierkorbTitel(eintrag), style = MhTypo.h3, color = f.textStrong)
+        if (zeile.vonName.isNotEmpty()) {
+            Text("von ${zeile.vonName}", style = MhTypo.small, color = f.textSecondary)
+        }
+        Spacer(Modifier.height(Mh.abstand2))
+        if (diary == null) {
+            Text(papierkorbOhneEintrag(eintrag), style = MhTypo.small, color = f.text)
+        } else {
+            for (feld in diary.fields.filter { it.textarea }) {
+                val wert = zeile.field(feld.key)
+                if (wert.isEmpty()) continue
+                Text(wert, style = MhTypo.body, color = f.text, modifier = Modifier.padding(bottom = 2.dp))
             }
-            Spacer(Modifier.height(8.dp))
-
-            if (diary == null) {
-                Text(
-                    papierkorbOhneEintrag(eintrag),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                for (feld in diary.fields) {
-                    val wert = zeile.field(feld.key)
-                    if (wert.isEmpty() || (feld.numeric && wert == "0")) continue
-                    val einheit = if (feld.unit.isNotEmpty()) " ${feld.unit}" else ""
-                    Text(
-                        "${feld.label}: $wert$einheit",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(bottom = 2.dp),
-                    )
-                }
+            val zahlen = diary.fields.filter { it.numeric }.mapNotNull { feld ->
+                val wert = zeile.field(feld.key).trim()
+                if (wert.isEmpty() || wert == "0") null
+                else "${feld.label} ${deutscheZahl(wert)}${if (feld.unit.isNotEmpty()) " ${feld.unit}" else ""}"
             }
-            if (eintrag.medien > 0) {
-                Text(
-                    papierkorbMedien(eintrag.medien, eintrag.bytes),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            if (zahlen.isNotEmpty()) {
+                Spacer(Modifier.height(Mh.abstand2))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) { zahlen.forEach { MhMarke(it) } }
             }
-            // Vorschaubilder: zeigen, was wiederhergestellt oder gelöscht wird.
-            if (eintrag.dateien.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for (datei in eintrag.dateien) {
-                        Box(
-                            modifier = Modifier
-                                .size(96.dp)
-                                .clip(MaterialTheme.shapes.medium)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                        ) {
-                            AsyncImage(
-                                model = api.papierkorbVorschauUrl(eintrag.kennung, datei),
-                                contentDescription = if (isVideoFile(datei)) "Standbild des Videos" else "Foto",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            if (isVideoFile(datei)) {
-                                Icon(
-                                    Icons.Filled.PlayArrow,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .background(Color(0x8A000000), CircleShape)
-                                        .padding(4.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                papierkorbFrist(eintrag),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (eintrag.wiederherstellbar) {
-                    Button(
-                        onClick = onWiederherstellen,
-                        enabled = !gesperrt,
-                        shape = MaterialTheme.shapes.medium,
+        }
+        if (eintrag.medien > 0) {
+            Spacer(Modifier.height(Mh.abstand2))
+            Text(papierkorbMedien(eintrag.medien, eintrag.bytes), style = MhTypo.small, color = f.textSecondary)
+        }
+        // Vorschaubilder: zeigen, was wiederhergestellt oder gelöscht wird.
+        if (eintrag.dateien.isNotEmpty()) {
+            Spacer(Modifier.height(Mh.abstand2))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                for (datei in eintrag.dateien) {
+                    Box(
+                        Modifier.size(72.dp).clip(RoundedCornerShape(Mh.radiusSm)).background(f.surfaceSubtle),
                     ) {
-                        Icon(Icons.Filled.RestoreFromTrash, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Wiederherstellen")
+                        AsyncImage(
+                            model = api.papierkorbVorschauUrl(eintrag.kennung, datei),
+                            contentDescription = if (isVideoFile(datei)) "Standbild des Videos" else "Foto",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        if (isVideoFile(datei)) VideoMarke(Modifier.align(Alignment.Center))
                     }
                 }
-                OutlinedButton(
-                    onClick = onEndgueltig,
-                    enabled = !gesperrt,
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Icon(
-                        Icons.Filled.DeleteForever,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("Endgültig löschen", color = MaterialTheme.colorScheme.error)
-                }
             }
+        }
+        Spacer(Modifier.height(Mh.abstand2))
+        Text(papierkorbFrist(eintrag), style = MhTypo.small, color = f.textTertiary)
+        Spacer(Modifier.height(Mh.abstand2))
+        Row(horizontalArrangement = Arrangement.spacedBy(Mh.abstand2), verticalAlignment = Alignment.CenterVertically) {
+            if (eintrag.wiederherstellbar) {
+                MhZweitButton("Wiederherstellen", onWiederherstellen, symbol = R.drawable.ic_mh_undo, enabled = !gesperrt)
+            }
+            MhLoeschenButton("Endgültig löschen", onEndgueltig, enabled = !gesperrt)
         }
     }
 }

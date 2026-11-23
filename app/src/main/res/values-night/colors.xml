@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="fenster_hintergrund">#0F1310</color>
+    <!-- Seitengrund (Minze & Honig 2.0, Rolle bg dunkel). -->
+    <color name="fenster_hintergrund">#1F2221</color>
 </resources>
