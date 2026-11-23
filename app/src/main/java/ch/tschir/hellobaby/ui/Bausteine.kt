@@ -63,8 +63,19 @@ fun ApiService.thumbnailSource(path: String, width: Int = 400): Any =
 private val deutschesDatum = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val wochentagDatum = DateTimeFormatter.ofPattern("EEEE, dd.MM.yyyy", Locale.GERMAN)
 
+/**
+ * Tag aus ISO („2026-11-15“, lokale Ablage) oder deutscher Schreibweise
+ * („15.11.2026“, liefert stats.php des Servers); null, wenn es kein Datum
+ * ist (z. B. „Keine Einträge“).
+ */
+fun tagLesen(text: String): LocalDate? {
+    val t = text.trim()
+    return runCatching { LocalDate.parse(t) }.getOrNull()
+        ?: runCatching { LocalDate.parse(t, deutschesDatum) }.getOrNull()
+}
+
 fun anzeigeDatum(isoDate: String): String =
-    runCatching { LocalDate.parse(isoDate).format(deutschesDatum) }.getOrDefault(isoDate)
+    tagLesen(isoDate)?.format(deutschesDatum) ?: isoDate
 
 fun wochentagsDatum(isoDate: String): String =
     runCatching { LocalDate.parse(isoDate).format(wochentagDatum) }.getOrDefault(isoDate)
