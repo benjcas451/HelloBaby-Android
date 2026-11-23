@@ -3,6 +3,6 @@
     <!-- Markenfarbe des App-Icons; der Icon-Hintergrund selbst ist der
          Verlauf in drawable/ic_launcher_background.xml. -->
     <color name="ic_launcher_background">#55B16B</color>
-    <!-- Seitenhintergrund (ruhiges, warm getöntes Neutral). -->
-    <color name="fenster_hintergrund">#F5F7F0</color>
+    <!-- Seitengrund (Minze & Honig 2.0, Rolle bg hell). -->
+    <color name="fenster_hintergrund">#FFFFFF</color>
 </resources>

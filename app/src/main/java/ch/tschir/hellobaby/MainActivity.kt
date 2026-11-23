@@ -13,25 +13,27 @@ import ch.tschir.hellobaby.data.AppSettings
 import ch.tschir.hellobaby.data.MedienClient
 import coil3.SingletonImageLoader
 import ch.tschir.hellobaby.ui.CreateScreen
-import ch.tschir.hellobaby.ui.DayViewScreen
-import ch.tschir.hellobaby.ui.FavoritesScreen
 import ch.tschir.hellobaby.ui.GalleryScreen
-import ch.tschir.hellobaby.ui.HelloBabyTheme
-import ch.tschir.hellobaby.ui.HomeScreen
-import ch.tschir.hellobaby.ui.ImageFeedScreen
-import ch.tschir.hellobaby.ui.MonthViewScreen
+import ch.tschir.hellobaby.ui.HauptScreen
+import ch.tschir.hellobaby.ui.MhTheme
 import ch.tschir.hellobaby.ui.PapierkorbScreen
 import ch.tschir.hellobaby.ui.SettingsScreen
 import ch.tschir.hellobaby.ui.VideoPlayerScreen
 
+/** Reiter der Hauptansicht – wie im Web-HelloBaby. */
+enum class Reiter(val titel: String) {
+    START("Start"),
+    TAG("Tag"),
+    MONAT("Monat"),
+    FAVORITEN("Favoriten"),
+    GALERIE("Galerie"),
+}
+
 /** Ziele der einfachen, eigenen Navigation (Back-Stack als Liste). */
 sealed interface Ziel {
-    data object Home : Ziel
+    /** Hauptansicht mit Reitern; [tag] wählt in „Tag“ ein Datum vor. */
+    data class Haupt(val reiter: Reiter = Reiter.START, val tag: String? = null) : Ziel
     data class Create(val initialDate: String? = null) : Ziel
-    data class Day(val initialDate: String? = null) : Ziel
-    data object Month : Ziel
-    data object Favorites : Ziel
-    data object ImageFeed : Ziel
     data class Gallery(val folder: String) : Ziel
     data class Video(val url: String) : Ziel
     data object Settings : Ziel
@@ -47,7 +49,7 @@ class MainActivity : ComponentActivity() {
         SingletonImageLoader.setSafe { MedienClient.bildLader(it) }
         enableEdgeToEdge()
         setContent {
-            HelloBabyTheme {
+            MhTheme {
                 val settings = remember { AppSettings(applicationContext) }
                 val api = remember { ApiService(applicationContext) }
                 Navigation(settings, api)
@@ -58,18 +60,29 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun Navigation(settings: AppSettings, api: ApiService) {
-    val stack = remember { mutableStateListOf<Ziel>(Ziel.Home) }
-    fun push(ziel: Ziel) = stack.add(ziel)
+    val stack = remember { mutableStateListOf<Ziel>(Ziel.Haupt()) }
+    fun push(ziel: Ziel) {
+        // Reiterwechsel ersetzt die Hauptansicht, statt den Stapel zu füllen.
+        if (ziel is Ziel.Haupt && stack.last() is Ziel.Haupt) stack[stack.lastIndex] = ziel
+        else stack.add(ziel)
+    }
     fun pop() {
         if (stack.size > 1) stack.removeAt(stack.lastIndex)
     }
 
-    BackHandler(enabled = stack.size > 1) { pop() }
+    val oben = stack.last()
+    // Zurück aus einem Reiter führt erst zum Start, dann aus der App.
+    val zumStart = stack.size == 1 && oben is Ziel.Haupt && oben.reiter != Reiter.START
+    BackHandler(enabled = stack.size > 1 || zumStart) {
+        if (zumStart) stack[0] = Ziel.Haupt() else pop()
+    }
 
-    when (val ziel = stack.last()) {
-        Ziel.Home -> HomeScreen(
+    when (val ziel = oben) {
+        is Ziel.Haupt -> HauptScreen(
             settings = settings,
             api = api,
+            reiter = ziel.reiter,
+            tag = ziel.tag,
             onNavigate = ::push,
         )
 
@@ -79,35 +92,6 @@ private fun Navigation(settings: AppSettings, api: ApiService) {
             initialDate = ziel.initialDate,
             onZurueck = ::pop,
             onEinstellungen = { push(Ziel.Settings) },
-        )
-
-        is Ziel.Day -> DayViewScreen(
-            settings = settings,
-            api = api,
-            initialDate = ziel.initialDate,
-            onZurueck = ::pop,
-            onNavigate = ::push,
-        )
-
-        Ziel.Month -> MonthViewScreen(
-            settings = settings,
-            api = api,
-            onZurueck = ::pop,
-            onNavigate = ::push,
-        )
-
-        Ziel.Favorites -> FavoritesScreen(
-            settings = settings,
-            api = api,
-            onZurueck = ::pop,
-            onNavigate = ::push,
-        )
-
-        Ziel.ImageFeed -> ImageFeedScreen(
-            settings = settings,
-            api = api,
-            onZurueck = ::pop,
-            onNavigate = ::push,
         )
 
         is Ziel.Gallery -> GalleryScreen(

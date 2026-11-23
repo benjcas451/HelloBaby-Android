@@ -1,40 +1,25 @@
 package ch.tschir.hellobaby.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.MonitorWeight
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,15 +28,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import ch.tschir.hellobaby.Entry
-import ch.tschir.hellobaby.isLocalMediaSource
-import ch.tschir.hellobaby.kDiaries
+import ch.tschir.hellobaby.R
 import ch.tschir.hellobaby.data.ApiService
+import ch.tschir.hellobaby.isImageFile
+import ch.tschir.hellobaby.isLocalMediaSource
+import ch.tschir.hellobaby.isVideoFile
+import ch.tschir.hellobaby.kDiaries
+import coil3.compose.AsyncImage
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -76,76 +69,57 @@ fun anzeigeDatum(isoDate: String): String =
 fun wochentagsDatum(isoDate: String): String =
     runCatching { LocalDate.parse(isoDate).format(wochentagDatum) }.getOrDefault(isoDate)
 
-// ── App-Bar / Zustands-Ansichten ────────────────────────────────────────────
+/** Uhrzeit „07:01“ aus `created_at` (Server „2026-11-15 07:01:00“, lokal ISO). */
+fun uhrzeit(createdAt: String): String =
+    Regex("""[ T](\d{2}):(\d{2})""").find(createdAt)?.let { "${it.groupValues[1]}:${it.groupValues[2]}" }.orEmpty()
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HbTopBar(
-    titel: String,
-    onZurueck: (() -> Unit)? = null,
-    aktionen: @Composable () -> Unit = {},
-) {
-    TopAppBar(
-        title = {
-            Text(titel, fontWeight = FontWeight.Bold)
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-        ),
-        navigationIcon = {
-            if (onZurueck != null) {
-                IconButton(onClick = onZurueck) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
-                }
-            }
-        },
-        actions = { aktionen() },
-    )
+/** Zahl in deutscher Schreibweise („9.3“ → „9,3“). */
+fun deutscheZahl(wert: String): String = wert.trim().replace('.', ',')
+
+// ── Meldungen über Bildschirmgrenzen ────────────────────────────────────────
+
+/**
+ * Kurze Meldung für die nächste Ansicht („Eintrag gespeichert“), wenn die
+ * auslösende Ansicht sich gleich schließt. Gepuffert, bis sie jemand abholt;
+ * jede Meldung erscheint genau einmal.
+ */
+object AppMeldung {
+    private val kanal = Channel<String>(Channel.BUFFERED)
+    val fluss: Flow<String> = kanal.receiveAsFlow()
+    fun senden(text: String) {
+        kanal.trySend(text)
+    }
 }
 
+// ── Zustands-Ansichten ──────────────────────────────────────────────────────
+
 @Composable
-fun FehlerAnsicht(meldung: String, icon: ImageVector = Icons.Filled.ErrorOutline, onErneut: () -> Unit) {
+fun FehlerAnsicht(meldung: String, onErneut: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = Mh.rand, vertical = Mh.abstand8),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(56.dp))
-        Spacer(Modifier.height(16.dp))
-        Text(meldung, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onErneut, shape = MaterialTheme.shapes.medium) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Erneut versuchen")
-        }
+        MhHinweis(meldung, art = MhHinweisArt.Fehler)
+        Spacer(Modifier.height(Mh.abstand4))
+        MhZweitButton("Erneut versuchen", onErneut, symbol = R.drawable.ic_mh_refresh)
     }
 }
 
 @Composable
-fun LadeAnsicht() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
-}
+fun LadeAnsicht() = MhLaden()
 
 @Composable
-fun LeerAnsicht(icon: ImageVector, text: String, untertitel: String? = null) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(56.dp))
-        Spacer(Modifier.height(12.dp))
-        Text(text, textAlign = TextAlign.Center)
+fun LeerAnsicht(text: String, untertitel: String? = null) {
+    Column(Modifier.fillMaxWidth()) {
+        MhLeer(text)
         if (untertitel != null) {
-            Spacer(Modifier.height(8.dp))
             Text(
                 untertitel,
+                style = MhTypo.small,
+                color = Mh.farben.textTertiary,
                 textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Mh.abstand4),
             )
         }
     }
@@ -154,9 +128,11 @@ fun LeerAnsicht(icon: ImageVector, text: String, untertitel: String? = null) {
 // ── Eintrags-Karte ──────────────────────────────────────────────────────────
 
 /**
- * Karte eines Tagebucheintrags: Kopf (erstellt am / von), die diary-
- * spezifischen Felder, Aktionen (Favorit, Galerie, Löschen).
+ * Karte eines Tagebucheintrags wie im Web: Kopfzeile „[Datum ·] 07:01 · Name“
+ * mit Stern, Haupttext ohne Label, weitere Texte mit kleinem Label, Zahlen
+ * als Marken, Fotos als Raster, „Löschen“ als roter Text.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EntryCard(
     entry: Entry,
@@ -165,120 +141,135 @@ fun EntryCard(
     onGalerie: (String) -> Unit,
     onDeleted: (() -> Unit)?,
     onMeldung: (String) -> Unit,
+    mitDatum: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
+    val f = Mh.farben
     val scope = rememberCoroutineScope()
     var favorit by remember(entry.id) { mutableStateOf(entry.favorit) }
     var favLaedt by remember(entry.id) { mutableStateOf(false) }
     var loeschDialog by remember { mutableStateOf(false) }
+    val diary = kDiaries[entry.diary.ifEmpty { activeDiary }] ?: kDiaries.values.first()
 
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "Erstellt am ${entry.createdAt}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    "von ${entry.vonName}",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+    MhKarte(modifier = modifier) {
+        // Kopfzeile
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val teile = buildList {
+                if (mitDatum) add(anzeigeDatum(entry.kalenderDatum))
+                uhrzeit(entry.createdAt).takeIf { it.isNotEmpty() }?.let(::add)
+                entry.vonName.takeIf { it.isNotBlank() }?.let(::add)
             }
-            Spacer(Modifier.height(8.dp))
-
-            // Diary-Felder gemäß aktiver Konfiguration.
-            val diary = kDiaries[activeDiary] ?: kDiaries.values.first()
-            for (feld in diary.fields) {
-                val wert = entry.field(feld.key)
-                if (feld.numeric) {
-                    if (wert.isEmpty() || wert == "0") continue
-                    val einheit = if (feld.unit.isNotEmpty()) " ${feld.unit}" else ""
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    ) {
-                        Icon(
-                            iconFuer(feld.key),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("${feld.label}: ", fontWeight = FontWeight.Bold)
-                        Text("$wert$einheit")
-                    }
-                } else {
-                    if (wert.isEmpty()) continue
-                    Column(modifier = Modifier.padding(bottom = 6.dp)) {
-                        Text("${feld.label}:", fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(2.dp))
-                        Text(wert)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                teile.joinToString(" · "),
+                style = MhTypo.small.copy(fontFeatureSettings = "tnum"),
+                color = f.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            Box(Modifier.size(Mh.touch), contentAlignment = Alignment.Center) {
                 if (favLaedt) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(18.dp), color = f.primary, strokeWidth = 2.dp)
                 } else {
-                    IconButton(onClick = {
-                        favLaedt = true
-                        scope.launch {
-                            // Den aktuellen Stand mitgeben: ohne Verbindung
-                            // bildet der Client den neuen Wert daraus selbst,
-                            // die API liefert ihn sonst erst in ihrer Antwort.
-                            runCatching {
-                                api.toggleFavorite(
-                                    entry.id,
-                                    entry.diary.ifEmpty { activeDiary },
-                                    aktuell = favorit,
-                                )
-                            }
-                                .onSuccess {
-                                    favorit = it
-                                    entry.favorit = it
+                    MhSymbolButton(
+                        symbol = if (favorit == 1) R.drawable.ic_mh_star_gefuellt else R.drawable.ic_mh_star,
+                        beschreibung = if (favorit == 1) "Favorit entfernen" else "Als Favorit markieren",
+                        farbe = if (favorit == 1) f.textYellow else f.textSecondary,
+                        onClick = {
+                            favLaedt = true
+                            scope.launch {
+                                // Den aktuellen Stand mitgeben: ohne Verbindung
+                                // bildet der Client den neuen Wert daraus selbst,
+                                // die API liefert ihn sonst erst in ihrer Antwort.
+                                runCatching {
+                                    api.toggleFavorite(
+                                        entry.id,
+                                        entry.diary.ifEmpty { activeDiary },
+                                        aktuell = favorit,
+                                    )
                                 }
-                                .onFailure { onMeldung("Fehler: ${it.message}") }
-                            favLaedt = false
+                                    .onSuccess {
+                                        favorit = it
+                                        entry.favorit = it
+                                    }
+                                    .onFailure { onMeldung("Favorit nicht gespeichert: ${it.message}") }
+                                favLaedt = false
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        // Texte: das Pflichtfeld als Haupttext ohne Label, weitere mit Label.
+        val texte = diary.fields.filter { it.textarea && entry.field(it.key).isNotBlank() }
+        texte.forEachIndexed { i, feld ->
+            if (i > 0 || !feld.required) {
+                Spacer(Modifier.height(if (i > 0) Mh.abstand3 else 0.dp))
+                Text(feld.label, style = MhTypo.label, color = f.textSecondary)
+            }
+            Text(entry.field(feld.key), style = MhTypo.body, color = f.text)
+        }
+
+        // Zahlen als Marken
+        val zahlen = diary.fields.filter { it.numeric }
+            .mapNotNull { feld ->
+                val wert = entry.field(feld.key).trim()
+                if (wert.isEmpty() || wert == "0") null
+                else "${feld.label} ${deutscheZahl(wert)}${if (feld.unit.isNotEmpty()) " ${feld.unit}" else ""}"
+            }
+        if (zahlen.isNotEmpty()) {
+            Spacer(Modifier.height(Mh.abstand3))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) { zahlen.forEach { MhMarke(it) } }
+        }
+
+        // Fotos als Raster (bis zu drei Vorschaubilder), sonst ein leiser Link.
+        val medien = entry.bilderFiles.filter { isImageFile(it) || isVideoFile(it) }
+        if (medien.isNotEmpty()) {
+            Spacer(Modifier.height(Mh.abstand3))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                medien.take(3).forEachIndexed { i, datei ->
+                    val rest = medien.size - 3
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(Mh.radiusSm))
+                            .background(f.surfaceSubtle)
+                            .clickable { onGalerie(entry.bilder) },
+                    ) {
+                        AsyncImage(
+                            model = api.thumbnailSource("${entry.bilder}/$datei"),
+                            contentDescription = if (i == 0) "Fotos ansehen" else null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        if (isVideoFile(datei)) VideoMarke(Modifier.align(Alignment.Center))
+                        if (i == 2 && rest > 0) {
+                            Box(
+                                Modifier.fillMaxSize().background(Color(0x99000000)),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("+$rest", style = MhTypo.h3, color = Color.White) }
                         }
-                    }) {
-                        Icon(
-                            if (favorit == 1) Icons.Filled.Star else Icons.Filled.StarBorder,
-                            contentDescription = if (favorit == 1) "Favorit entfernen" else "Als Favorit markieren",
-                            tint = if (favorit == 1) Hb.gold else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
+                repeat(3 - medien.take(3).size) { Spacer(Modifier.weight(1f)) }
+            }
+        } else if (entry.bilder.isNotEmpty()) {
+            Spacer(Modifier.height(Mh.abstand2))
+            MhTextButton(
+                "Fotos ansehen",
+                { onGalerie(entry.bilder) },
+                symbol = R.drawable.ic_mh_image,
+                modifier = Modifier.padding(start = 0.dp),
+            )
+        }
 
-                if (entry.bilder.isNotEmpty()) {
-                    TextButton(onClick = { onGalerie(entry.bilder) }) {
-                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Galerie")
-                    }
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                if (onDeleted != null) {
-                    IconButton(onClick = { loeschDialog = true }) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "Löschen",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
+        if (onDeleted != null) {
+            Spacer(Modifier.height(Mh.abstand1))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                MhLoeschenButton("Löschen", { loeschDialog = true })
             }
         }
     }
@@ -286,7 +277,7 @@ fun EntryCard(
     if (loeschDialog && onDeleted != null) {
         AlertDialog(
             onDismissRequest = { loeschDialog = false },
-            title = { Text("Eintrag löschen") },
+            title = { Text("Eintrag löschen", style = MhTypo.h2) },
             text = {
                 // Der Server hebt Gelöschtes auf, die lokale Ablage nicht.
                 Text(
@@ -296,27 +287,37 @@ fun EntryCard(
                     } else {
                         "Möchtest du diesen Eintrag wirklich löschen?"
                     },
+                    style = MhTypo.body,
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                MhLoeschenButton("Löschen", {
                     loeschDialog = false
                     scope.launch {
                         runCatching { api.deleteEntry(entry.id, entry.diary.ifEmpty { activeDiary }) }
-                            .onSuccess { onDeleted() }
-                            .onFailure { onMeldung("Fehler beim Löschen: ${it.message}") }
+                            .onSuccess {
+                                onMeldung("Eintrag gelöscht")
+                                onDeleted()
+                            }
+                            .onFailure { onMeldung("Löschen fehlgeschlagen: ${it.message}") }
                     }
-                }) { Text("Löschen", color = MaterialTheme.colorScheme.error) }
+                })
             },
-            dismissButton = {
-                TextButton(onClick = { loeschDialog = false }) { Text("Abbrechen") }
-            },
+            dismissButton = { MhTextButton("Abbrechen", { loeschDialog = false }) },
         )
     }
 }
 
-private fun iconFuer(key: String): ImageVector = when (key) {
-    "gewicht" -> Icons.Filled.MonitorWeight
-    "kopfumfang" -> Icons.Filled.Face
-    else -> Icons.Filled.Straighten
+/** Kleines Abspielzeichen über Video-Vorschaubildern. */
+@Composable
+fun VideoMarke(modifier: Modifier = Modifier, gross: Boolean = false) {
+    Box(
+        modifier
+            .size(if (gross) 56.dp else 32.dp)
+            .clip(CircleShape)
+            .background(Color(0x8A000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        MhSymbol(R.drawable.ic_mh_play, "Video", farbe = Color.White, groesse = if (gross) 28.dp else 18.dp)
+    }
 }

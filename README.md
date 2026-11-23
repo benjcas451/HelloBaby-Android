@@ -4,21 +4,37 @@ Natives Android-Pendant der früheren Flutter-App **HelloBaby!** – ein
 Schwangerschafts- und Entwicklungstagebuch mit Fotos/Videos, wahlweise
 komplett lokal oder gegen eine eigene Server-API.
 
-- **Sprache/UI:** Kotlin, Jetpack Compose (Material 3, eigenes Baby-Grün-Theme)
+- **Sprache/UI:** Kotlin, Jetpack Compose (Material 3 mit dem Familien-Designsystem „Minze & Honig 2.0“, Schrift Figtree, eigene Liniensymbole)
 - **applicationId:** `ch.tschir.HelloBaby` (identisch zur Flutter-App → Installation ist ein Update)
-- **Version:** 3.0.0, versionCode lokal 8, in CI `100 + run_number`
+- **Version:** 3.4.0, versionCode lokal 12, in CI `100 + run_number`
 - **Verteilung:** signiertes APK über GitHub-Releases + App Bundle in den Play-Track `alpha`
 
 ## Funktionsumfang
 
 - Zwei Tagebücher (Schwangerschaft/Entwicklung) mit dynamischen Feldern
-- Tages-, Monats-, Favoriten- und Galerie-Ansichten, zufälliger Tag
+- Hauptansicht wie im Web: Reiter Start, Tag, Monat, Favoriten, Galerie;
+  Start zeigt die letzten Einträge und „Stöbern“ (zufälliger Tag, alle Bilder,
+  Favoriten, Papierkorb)
 - Eintrag erstellen mit Fotos/Videos (Galerie-Picker, Kamera), Upload-Fortschritt
 - Datenquellen: lokal (SQLite + Medienordner) oder Server-API
   (API-Key, mTLS-Client-Zertifikat aus SAF-Ordner oder Cloudflare
   Service Token)
 - ZIP-Backup/-Wiederherstellung (Format kompatibel zur Flutter-App)
 - Einmaliger Import lokaler Einträge zur Server-API (mit Duplikatschutz)
+
+## Gestaltung
+
+Die Oberfläche folgt dem Designsystem „Minze & Honig 2.0“ (eigenes Repo
+`DesignGuide`): Farbe als Signal statt Fläche, genau eine Hauptaktion je
+Ansicht, Haarlinien statt Schatten, Hell und Dunkel folgen dem System.
+
+- `ui/MhTheme.kt`: Rollen-Tokens hell/dunkel (aus `design-tokens.json`),
+  Material-Farbschema, Typo-Skala in sp, Radien. Dynamic Color bleibt aus.
+- `ui/MhBausteine.kt`: gemeinsame Bausteine (Kopf, Buttons, Segmentschalter,
+  Reiter, Auswahl, Karte, Listenzeile, Hinweis, Leerzustand …).
+- `res/font/figtree_*.ttf`: Figtree 400/500/600, Lizenz in `licenses/Figtree-OFL.txt`.
+- `res/drawable/ic_mh_*.xml`: Liniensymbole (24er-Raster, 1,5 Strich), aus
+  dem Guide erzeugt; eingefärbt über `tint`.
 
 ## Datenübernahme von der Flutter-App
 

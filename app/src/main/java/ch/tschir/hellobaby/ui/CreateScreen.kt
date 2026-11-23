@@ -4,55 +4,39 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,23 +52,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import coil3.compose.AsyncImage
-import kotlinx.coroutines.launch
+import ch.tschir.hellobaby.R
 import ch.tschir.hellobaby.data.ApiService
 import ch.tschir.hellobaby.data.AppSettings
 import ch.tschir.hellobaby.isVideoFile
 import ch.tschir.hellobaby.kDiaries
+import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Ein fürs Formular ausgewähltes Medium (immer als lokale Datei gepuffert). */
 private data class GewaehltesMedium(val datei: File, val istVideo: Boolean)
@@ -152,7 +137,7 @@ fun CreateScreen(
             }
         }.fold(
             onSuccess = { medien.add(it) },
-            onFailure = { snackbar.showSnackbar("Medium konnte nicht übernommen werden: ${it.message}") },
+            onFailure = { snackbar.showSnackbar("Das Medium ließ sich nicht übernehmen: ${it.message}") },
         )
     }
 
@@ -196,12 +181,14 @@ fun CreateScreen(
 
     fun speichern() {
         if (medienLadenAnzahl > 0) {
-            scope.launch { snackbar.showSnackbar("Bitte warten – Medien werden noch übernommen.") }
+            scope.launch { snackbar.showSnackbar("Bitte kurz warten, die Medien werden noch übernommen") }
             return
         }
-        val pflichtFehlt = diary.fields.any { it.required && werte.value[it.key].orEmpty().isBlank() }
-        if (pflichtFehlt) {
-            scope.launch { snackbar.showSnackbar("Bitte alle Pflichtfelder (*) ausfüllen.") }
+        val fehlend = diary.fields.filter { it.required && werte.value[it.key].orEmpty().isBlank() }
+        if (fehlend.isNotEmpty()) {
+            scope.launch {
+                snackbar.showSnackbar("Bitte ${fehlend.joinToString(" und ") { "„${it.label}“" }} ausfüllen")
+            }
             return
         }
         if (vonName.isBlank()) {
@@ -239,274 +226,220 @@ fun CreateScreen(
                     }
                     speichert = false
                     uploadFortschritt = null
+                    AppMeldung.senden("Eintrag gespeichert")
                     onZurueck()
                 },
                 onFailure = {
                     speichert = false
                     uploadFortschritt = null
-                    snackbar.showSnackbar("Fehler: ${it.message}")
+                    snackbar.showSnackbar("Speichern fehlgeschlagen: ${it.message}")
                 },
             )
         }
     }
 
     Scaffold(
-        topBar = { HbTopBar(titel = "${diary.title}: Eintrag", onZurueck = onZurueck) },
+        topBar = { MhKopf(titel = "Neuer Eintrag", untertitel = diary.title, onZurueck = onZurueck) },
         snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Mh.farben.bg,
     ) { innen ->
         Column(
             modifier = Modifier
                 .padding(innen)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(horizontal = Mh.rand)
+                .padding(top = Mh.abstand2, bottom = Mh.abstand8),
+            verticalArrangement = Arrangement.spacedBy(Mh.abstand4),
         ) {
-            // Datum
-            ListItem(
-                leadingContent = { Icon(Icons.Filled.CalendarToday, contentDescription = null) },
-                headlineContent = { Text("Datum") },
-                supportingContent = {
+            val f = Mh.farben
+            // Datum: sieht aus wie ein Feld, öffnet die Datumsauswahl.
+            MhFeld("Datum") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Mh.touch)
+                        .clip(MhFeldForm)
+                        .background(f.fieldBg)
+                        .border(1.dp, f.borderStrong, MhFeldForm)
+                        .clickable(role = Role.Button, onClickLabel = "Datum ändern") { zeigeDatumswahl = true }
+                        .padding(horizontal = Mh.abstand4),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        datum.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        datum.format(DateTimeFormatter.ofPattern("EEEE, dd.MM.yyyy", Locale.GERMAN)),
+                        style = MhTypo.body,
+                        color = f.text,
+                        modifier = Modifier.weight(1f),
                     )
-                },
-                trailingContent = { Icon(Icons.Filled.Edit, contentDescription = "Datum ändern") },
-                modifier = Modifier.clickable { zeigeDatumswahl = true },
-            )
-            Spacer(Modifier.height(8.dp))
-
-            // Dynamische Felder
-            for (feld in diary.fields) {
-                OutlinedTextField(
-                    value = werte.value[feld.key].orEmpty(),
-                    onValueChange = { neu ->
-                        werte.value = werte.value.toMutableMap().apply { put(feld.key, neu) }
-                    },
-                    label = { Text(if (feld.required) "${feld.label} *" else feld.label) },
-                    suffix = if (feld.unit.isNotEmpty()) {
-                        { Text(feld.unit) }
-                    } else null,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = if (feld.numeric) KeyboardType.Decimal else KeyboardType.Text,
-                        capitalization = if (feld.numeric) KeyboardCapitalization.None else KeyboardCapitalization.Sentences,
-                    ),
-                    minLines = if (feld.textarea) 4 else 1,
-                    maxLines = if (feld.textarea) 8 else 1,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                )
+                    MhSymbol(R.drawable.ic_mh_calendar, null, farbe = f.textSecondary)
+                }
             }
 
-            // Ersteller
-            var dropdownOffen by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = dropdownOffen,
-                onExpandedChange = { if (nutzer.isNotEmpty()) dropdownOffen = it },
+            // Felder des Tagebuchs: Pflichtfeld ohne Zusatz, alles andere „optional“.
+            for (feld in diary.fields) {
+                MhFeld(feld.label, zusatz = if (feld.required) null else "optional") {
+                    OutlinedTextField(
+                        value = werte.value[feld.key].orEmpty(),
+                        onValueChange = { neu ->
+                            werte.value = werte.value.toMutableMap().apply { put(feld.key, neu) }
+                        },
+                        suffix = if (feld.unit.isNotEmpty()) {
+                            { Text(feld.unit, style = MhTypo.body, color = f.textSecondary) }
+                        } else null,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = if (feld.numeric) KeyboardType.Decimal else KeyboardType.Text,
+                            capitalization = if (feld.numeric) KeyboardCapitalization.None else KeyboardCapitalization.Sentences,
+                        ),
+                        textStyle = MhTypo.body,
+                        colors = mhFeldFarben(),
+                        shape = MhFeldForm,
+                        minLines = if (feld.textarea) 4 else 1,
+                        maxLines = if (feld.textarea) 8 else 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            // Ersteller als Auswahl
+            MhFeld(
+                "Von",
+                hinweis = if (nutzer.isEmpty()) "Personen legst du in den Einstellungen an." else null,
             ) {
-                OutlinedTextField(
-                    value = vonName,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Ersteller *") },
-                    placeholder = if (nutzer.isEmpty()) {
-                        { Text("Keine Person angelegt") }
-                    } else null,
-                    supportingText = if (nutzer.isEmpty()) {
-                        { Text("In den Einstellungen unter „Personen“ anlegen") }
-                    } else null,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownOffen) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
-                )
-                ExposedDropdownMenu(
-                    expanded = dropdownOffen,
-                    onDismissRequest = { dropdownOffen = false },
-                ) {
-                    nutzer.forEach { name ->
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                vonName = name
-                                dropdownOffen = false
-                            },
-                        )
+                if (nutzer.isEmpty()) {
+                    MhTextButton(
+                        "Person anlegen",
+                        { zeigeErstellerDialog = true },
+                        symbol = R.drawable.ic_mh_user_plus,
+                    )
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        nutzer.forEach { name ->
+                            MhAuswahl(name, gewaehlt = vonName == name, onClick = { vonName = name })
+                        }
                     }
                 }
             }
-            if (nutzer.isEmpty()) {
-                TextButton(onClick = { zeigeErstellerDialog = true }) {
-                    Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Person anlegen")
-                }
-            }
-            Spacer(Modifier.height(20.dp))
 
             // Medien
-            Text("Medien", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Button(onClick = {
-                    galerieWahl.launch(
-                        androidx.activity.result.PickVisualMediaRequest(
-                            ActivityResultContracts.PickVisualMedia.ImageAndVideo,
-                        ),
-                    )
-                }, shape = MaterialTheme.shapes.medium) {
-                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Galerie")
+            MhFeld("Fotos und Videos", zusatz = "optional") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Mh.abstand2),
+                    verticalArrangement = Arrangement.spacedBy(Mh.abstand2),
+                ) {
+                    MhZweitButton("Auswählen", {
+                        galerieWahl.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageAndVideo,
+                            ),
+                        )
+                    }, symbol = R.drawable.ic_mh_image)
+                    MhZweitButton("Foto", {
+                        val ziel = kameraDatei("jpg")
+                        kameraZiel = ziel
+                        fotoAufnahme.launch(ziel.second)
+                    }, symbol = R.drawable.ic_mh_camera)
+                    MhZweitButton("Video", {
+                        val ziel = kameraDatei("mp4")
+                        kameraZiel = ziel
+                        videoAufnahme.launch(ziel.second)
+                    }, symbol = R.drawable.ic_mh_video)
                 }
-                Button(onClick = {
-                    val ziel = kameraDatei("jpg")
-                    kameraZiel = ziel
-                    fotoAufnahme.launch(ziel.second)
-                }, shape = MaterialTheme.shapes.medium) {
-                    Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Kamera Foto")
-                }
-                Button(onClick = {
-                    val ziel = kameraDatei("mp4")
-                    kameraZiel = ziel
-                    videoAufnahme.launch(ziel.second)
-                }, shape = MaterialTheme.shapes.medium) {
-                    Icon(Icons.Filled.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Kamera Video")
-                }
-            }
 
-            if (medien.isNotEmpty() || medienLadenAnzahl > 0) {
-                Spacer(Modifier.height(12.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Platzhalter für Medien, die noch übernommen werden.
-                    items(medienLadenAnzahl) {
-                        Box(
-                            modifier = Modifier
-                                .size(100.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
-                        }
-                    }
-                    items(medien.size) { index ->
-                        val medium = medien[index]
-                        Box {
-                            if (medium.istVideo) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(100.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xDD000000)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.Filled.PlayCircle,
-                                        contentDescription = "Video",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(48.dp),
-                                    )
-                                }
-                            } else {
-                                AsyncImage(
-                                    model = medium.datei,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(100.dp).clip(RoundedCornerShape(8.dp)),
-                                )
-                            }
+                if (medien.isNotEmpty() || medienLadenAnzahl > 0) {
+                    Spacer(Modifier.height(Mh.abstand1))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // Platzhalter für Medien, die noch übernommen werden.
+                        items(medienLadenAnzahl) {
                             Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(2.dp)
-                                    .size(24.dp)
-                                    .background(MaterialTheme.colorScheme.error, CircleShape)
-                                    .clickable { medien.removeAt(index) },
+                                Modifier.size(88.dp).clip(RoundedCornerShape(Mh.radiusSm)).background(f.surfaceSubtle),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "Entfernen",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp),
-                                )
+                                CircularProgressIndicator(Modifier.size(22.dp), color = f.primary, strokeWidth = 2.dp)
+                            }
+                        }
+                        items(medien.size) { index ->
+                            val medium = medien[index]
+                            Box(Modifier.size(88.dp).clip(RoundedCornerShape(Mh.radiusSm)).background(f.surfaceSubtle)) {
+                                if (!medium.istVideo) {
+                                    AsyncImage(
+                                        model = medium.datei,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(88.dp),
+                                    )
+                                } else {
+                                    VideoMarke(Modifier.align(Alignment.Center))
+                                }
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(Mh.touch)
+                                        .clickable(role = Role.Button, onClickLabel = "Entfernen") { medien.removeAt(index) },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Box(
+                                        Modifier.size(24.dp).clip(CircleShape).background(Color(0x99000000)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        MhSymbol(R.drawable.ic_mh_close, "Entfernen", farbe = Color.White, groesse = 14.dp)
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                if (medienLadenAnzahl > 0) {
+                    Text("Medien werden übernommen, bitte kurz warten.", style = MhTypo.small, color = f.textSecondary)
+                }
             }
-
-            if (medienLadenAnzahl > 0) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Medien werden übernommen – bitte kurz warten.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(Modifier.height(28.dp))
 
             // Upload-Fortschritt
             if (speichert && medien.isNotEmpty()) {
                 val fortschritt = uploadFortschritt
                 val laeuftNoch = fortschritt == null || fortschritt < 1f
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(Mh.abstand2)) {
                     Text(
                         when {
-                            !laeuftNoch -> "Medien werden verarbeitet…"
-                            fortschritt == null -> "Upload wird vorbereitet…"
-                            else -> "Medien werden hochgeladen… ${(fortschritt * 100).toInt()}%"
+                            !laeuftNoch -> "Medien werden verarbeitet …"
+                            fortschritt == null -> "Upload wird vorbereitet …"
+                            else -> "Medien werden hochgeladen · ${(fortschritt * 100).toInt()} %"
                         },
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MhTypo.small,
+                        color = f.textSecondary,
                     )
+                    if (laeuftNoch && fortschritt != null) {
+                        LinearProgressIndicator(
+                            progress = { fortschritt },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                            color = f.primary,
+                            trackColor = f.dataTrack,
+                            drawStopIndicator = {},
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                            color = f.primary,
+                            trackColor = f.dataTrack,
+                        )
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                if (laeuftNoch && fortschritt != null) {
-                    LinearProgressIndicator(
-                        progress = { fortschritt },
-                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
             }
 
-            // Speichern
-            Button(
+            // Die eine Hauptaktion
+            MhHauptButton(
+                text = when {
+                    medienLadenAnzahl > 0 -> "Medien werden übernommen …"
+                    speichert -> "Wird gespeichert …"
+                    else -> "Eintrag speichern"
+                },
                 onClick = { if (!speichert) speichern() },
                 enabled = !speichert && medienLadenAnzahl == 0,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                if (speichert || medienLadenAnzahl > 0) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when {
-                        medienLadenAnzahl > 0 -> "Medien werden übernommen..."
-                        speichert -> "Speichern..."
-                        else -> "Speichern"
-                    },
-                )
-            }
+                modifier = Modifier.fillMaxWidth().padding(top = Mh.abstand2),
+            )
         }
     }
 
@@ -517,44 +450,41 @@ fun CreateScreen(
         DatePickerDialog(
             onDismissRequest = { zeigeDatumswahl = false },
             confirmButton = {
-                TextButton(onClick = {
+                MhTextButton("Übernehmen", {
                     state.selectedDateMillis?.let {
                         datum = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()
                     }
                     zeigeDatumswahl = false
-                }) { Text("Übernehmen") }
+                })
             },
-            dismissButton = {
-                TextButton(onClick = { zeigeDatumswahl = false }) { Text("Abbrechen") }
-            },
+            dismissButton = { MhTextButton("Abbrechen", { zeigeDatumswahl = false }) },
+            colors = DatePickerDefaults.colors(containerColor = Mh.farben.surfaceRaised),
         ) { DatePicker(state = state, showModeToggle = false) }
     }
 
     if (zeigeErstellerDialog) {
         AlertDialog(
             onDismissRequest = { zeigeErstellerDialog = false },
-            title = { Text("Kein Ersteller ausgewählt") },
+            title = { Text("Wer schreibt den Eintrag", style = MhTypo.h2) },
             text = {
                 Text(
                     if (nutzer.isEmpty()) {
                         "Es ist noch keine Person angelegt. Lege in den Einstellungen " +
-                            "mindestens eine Person an, um sie hier als Ersteller " +
-                            "auswählen zu können."
+                            "mindestens eine Person an, dann kannst du sie hier auswählen."
                     } else {
-                        "Bitte wähle einen Ersteller aus oder lege in den " +
+                        "Bitte wähle aus, von wem der Eintrag ist, oder lege in den " +
                             "Einstellungen eine weitere Person an."
                     },
+                    style = MhTypo.body,
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                MhTextButton("Zu den Einstellungen", {
                     zeigeErstellerDialog = false
                     onEinstellungen()
-                }) { Text("Zu den Einstellungen") }
+                })
             },
-            dismissButton = {
-                TextButton(onClick = { zeigeErstellerDialog = false }) { Text("Abbrechen") }
-            },
+            dismissButton = { MhTextButton("Abbrechen", { zeigeErstellerDialog = false }) },
         )
     }
 }
